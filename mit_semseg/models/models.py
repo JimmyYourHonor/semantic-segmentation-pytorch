@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from . import resnet, resnext, mobilenet, hrnet
+from . import resnet, resnext, mobilenet, hrnet, segformer
 from mit_semseg.lib.nn import SynchronizedBatchNorm2d
 BatchNorm2d = SynchronizedBatchNorm2d
 
@@ -98,6 +98,12 @@ class ModelBuilder:
             net_encoder = Resnet(orig_resnext) # we can still use class Resnet
         elif arch == 'hrnetv2':
             net_encoder = hrnet.__dict__['hrnetv2'](pretrained=pretrained)
+        elif arch == 'mit_b0':
+            net_encoder = segformer.__dict__['mit_b0'](pretrained=pretrained)
+        elif arch == 'mit_b1':
+            net_encoder = segformer.__dict__['mit_b1'](pretrained=pretrained)
+        elif arch == 'mit_b2':
+            net_encoder = segformer.__dict__['mit_b2'](pretrained=pretrained)
         else:
             raise Exception('Architecture undefined!')
 
@@ -111,8 +117,9 @@ class ModelBuilder:
 
     @staticmethod
     def build_decoder(arch='ppm_deepsup',
-                      fc_dim=512, num_class=150,
-                      weights='', use_softmax=False):
+                      fc_dim=512, num_class=150, weights='',
+                      use_softmax=False, in_channels=[32, 64, 160, 256],
+                      embedding_dim=256):
         arch = arch.lower()
         if arch == 'c1_deepsup':
             net_decoder = C1DeepSup(
@@ -146,6 +153,14 @@ class ModelBuilder:
                 fc_dim=fc_dim,
                 use_softmax=use_softmax,
                 fpn_dim=512)
+        elif arch == 'segformer_head':
+            net_decoder = SegformerHead(
+                in_channels=in_channels, 
+                embedding_dim=embedding_dim, 
+                num_classes=num_class, 
+                drop_rate=0.1,
+                use_softmax=use_softmax
+            )
         else:
             raise Exception('Architecture undefined!')
 
@@ -582,5 +597,67 @@ class UPerNet(nn.Module):
             return x
 
         x = nn.functional.log_softmax(x, dim=1)
+
+        return x
+    
+# Segformer head
+class MLP(nn.Module):
+    """
+    Linear Embedding
+    """
+    def __init__(self, input_dim=2048, embed_dim=768):
+        super().__init__()
+        self.proj = nn.Linear(input_dim, embed_dim)
+
+    def forward(self, x):
+        x = x.flatten(2).transpose(1, 2)
+        x = self.proj(x)
+        return x
+
+class SegformerHead(nn.Module):
+    def __init__(self, in_channels, embedding_dim, num_classes, drop_rate, use_softmax=False):
+        super(SegformerHead, self).__init__()
+        self.use_softmax = use_softmax
+        c1_in_channels, c2_in_channels, c3_in_channels, c4_in_channels = in_channels
+        self.linear_c4 = MLP(input_dim=c4_in_channels, embed_dim=embedding_dim)
+        self.linear_c3 = MLP(input_dim=c3_in_channels, embed_dim=embedding_dim)
+        self.linear_c2 = MLP(input_dim=c2_in_channels, embed_dim=embedding_dim)
+        self.linear_c1 = MLP(input_dim=c1_in_channels, embed_dim=embedding_dim)
+        self.linear_fuse = nn.Sequential(
+            nn.Conv2d(embedding_dim*4, embedding_dim, kernel_size=1, bias=False),
+            BatchNorm2d(embedding_dim),
+            nn.ReLU(inplace=True)
+        )
+        self.linear_pred = nn.Conv2d(embedding_dim, num_classes, kernel_size=1)
+        self.dropout = nn.Dropout(drop_rate)
+
+    def forward(self, inputs, segSize=None):
+        c1, c2, c3, c4 = inputs
+
+        ############## MLP decoder on C1-C4 ###########
+        n = c4.shape[0]
+
+        _c4 = self.linear_c4(c4).permute(0,2,1).reshape(n, -1, c4.shape[2], c4.shape[3])
+        _c4 = nn.functional.interpolate(_c4, size=c1.size()[2:], mode='bilinear', align_corners=False)
+
+        _c3 = self.linear_c3(c3).permute(0,2,1).reshape(n, -1, c3.shape[2], c3.shape[3])
+        _c3 = nn.functional.interpolate(_c3, size=c1.size()[2:], mode='bilinear', align_corners=False)
+
+        _c2 = self.linear_c2(c2).permute(0,2,1).reshape(n, -1, c2.shape[2], c2.shape[3])
+        _c2 = nn.functional.interpolate(_c2, size=c1.size()[2:], mode='bilinear', align_corners=False)
+
+        _c1 = self.linear_c1(c1).permute(0,2,1).reshape(n, -1, c1.shape[2], c1.shape[3])
+
+        _c = self.linear_fuse(torch.cat([_c4, _c3, _c2, _c1], dim=1))
+
+        x = self.dropout(_c)
+        x = self.linear_pred(x)
+
+        if self.use_softmax: # is True during inference
+            x = nn.functional.interpolate(
+                x, size=segSize, mode='bilinear', align_corners=False)
+            x = nn.functional.softmax(x, dim=1)
+        else:
+            x = nn.functional.log_softmax(x, dim=1)
 
         return x
