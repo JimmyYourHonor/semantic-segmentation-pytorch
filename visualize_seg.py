@@ -42,7 +42,7 @@ def visualize_seg(seg):
     Image.fromarray(seg_color).save('seg.png')
 
 if __name__ == '__main__':
-    segm = Image.open('ADE_val_00000001.png')
+    segm = Image.open('/content/semantic-segmentation-pytorch/data/ADEChallengeData2016/annotations/validation/ADE_val_00000001.png')
     segm = torch.from_numpy(np.array(segm)).long() - 1
     segm = as_numpy(segm)
     visualize_seg(segm)

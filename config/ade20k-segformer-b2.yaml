@@ -1,5 +1,5 @@
 DATASET:
-  root_dataset: ".."
+  root_dataset: "./data/"
   list_train: "./data/training.odgt"
   list_val: "./data/validation.odgt"
   num_class: 150
@@ -12,7 +12,7 @@ DATASET:
 MODEL:
   arch_encoder: "mit_b2"
   arch_decoder: "segformer_head"
-  pretrained_segformer: "//Users/jimmyfu/pretrained_segformer/segformer.b2.512x512.ade.160k.pth"
+  pretrained_segformer: "/content/drive/MyDrive/pretrained_segformer/segformer.b2.512x512.ade.160k.pth"
   fc_dim: None
   in_channels: [64, 128, 320, 512]
   embedding_dim: 768

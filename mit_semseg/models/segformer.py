@@ -375,22 +375,22 @@ def mit_b0(pretrained=False):
     model = MixVisionTransformer(patch_size=4, embed_dims=[32, 64, 160, 256], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 2, 2], sr_ratios=[8, 4, 2, 1],
             drop_rate=0.0, drop_path_rate=0.1)
-    if pretrained:
-        model.load_state_dict(torch.load(model_paths['mit_b0']), strict=False)
+    # if pretrained:
+    #     model.load_state_dict(torch.load(model_paths['mit_b0']), strict=False)
     return model
 
 def mit_b1(pretrained=False):
     model = MixVisionTransformer(patch_size=4, embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 2, 2], sr_ratios=[8, 4, 2, 1],
             drop_rate=0.0, drop_path_rate=0.1)
-    if pretrained:
-        model.load_state_dict(torch.load(model_paths['mit_b1']), strict=False)
+    # if pretrained:
+    #     model.load_state_dict(torch.load(model_paths['mit_b1']), strict=False)
     return model
 
 def mit_b2(pretrained=False):
     model = MixVisionTransformer(patch_size=4, embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1],
             drop_rate=0.0, drop_path_rate=0.1)
-    if pretrained:
-        model.load_state_dict(torch.load(model_paths['mit_b2']), strict=False)
+    # if pretrained:
+    #     model.load_state_dict(torch.load(model_paths['mit_b2']), strict=False)
     return model
