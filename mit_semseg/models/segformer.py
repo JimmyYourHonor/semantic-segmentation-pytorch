@@ -14,9 +14,9 @@ import math
 __all__ = ['MixVisionTransformer', 'mit_b0', 'mit_b1', 'mit_b2']
 
 model_paths = {
-    'mit_b0': '/Users/jimmyfu/pretrained_mit/mit_b0.pth',
-    'mit_b1': '/Users/jimmyfu/pretrained_mit/mit_b1.pth',
-    'mit_b2': '/Users/jimmyfu/pretrained_mit/mit_b2.pth',
+    'mit_b0': '/content/drive/MyDrive/pretrained_mit/mit_b0.pth',
+    'mit_b1': '/content/drive/MyDrive/pretrained_mit/mit_b1.pth',
+    'mit_b2': '/content/drive/MyDrive/pretrained_mit/mit_b2.pth',
 }
 
 class Mlp(nn.Module):

@@ -29,7 +29,8 @@ def train(segmentation_module, loader, optimizers, history, epoch, cfg):
     tic = time.time()
     for i, batch_data in enumerate(loader):
         # load a batch of data
-        batch_data = batch_data.cuda()
+        for k, v in batch_data.items():
+          batch_data[k] = batch_data[k].cuda()
         data_time.update(time.time() - tic)
         segmentation_module.zero_grad()
 
@@ -107,6 +108,11 @@ def group_weight(module):
                 group_no_decay.append(m.weight)
             if m.bias is not None:
                 group_no_decay.append(m.bias)
+        elif isinstance(m, nn.LayerNorm):
+            if m.weight is not None:
+                group_no_decay.append(m.weight)
+            if m.bias is not None:
+                group_no_decay.append(m.bias)
 
     assert len(list(module.parameters())) == len(group_decay) + len(group_no_decay)
     groups = [dict(params=group_decay), dict(params=group_no_decay, weight_decay=.0)]
@@ -177,6 +183,7 @@ def main(cfg):
         num_workers=cfg.TRAIN.workers,
         drop_last=True,
         pin_memory=True)
+    cfg.TRAIN.max_iters = len(loader_train) * cfg.TRAIN.num_epoch
     print('1 Epoch = {} iters'.format(len(loader_train)))
 
     # create loader iterator
