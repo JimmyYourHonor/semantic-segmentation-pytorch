@@ -19,6 +19,10 @@ _C.DATASET.num_class = 150
 _C.DATASET.imgSizes = (300, 375, 450, 525, 600)
 # maximum input image size of long edge
 _C.DATASET.imgMaxSize = 1000
+_C.DATASET.imgScales = (2048, 512)
+_C.DATASET.imgRatio = (0.5, 2.0)
+_C.DATASET.imgCropSize = (512, 512)
+_C.DATASET.cat_max_ratio = 0.75
 # maxmimum downsampling rate of the network
 _C.DATASET.padding_constant = 8
 # downsampling rate of the segmentation label
@@ -43,6 +47,7 @@ _C.MODEL.fc_dim = 2048
 _C.MODEL.in_channels = []
 _C.MODEL.embedding_dim = None
 _C.MODEL.pretrained_segformer = None
+_C.MODEL.checkpoint = None
 
 # -----------------------------------------------------------------------------
 # Training

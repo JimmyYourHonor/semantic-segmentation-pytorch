@@ -1,21 +1,42 @@
 DATASET:
-  root_dataset: "./data/"
+  root_dataset: ".."
   list_train: "./data/training.odgt"
   list_val: "./data/validation.odgt"
   num_class: 150
   imgSizes: (512,)
   imgMaxSize: 2048
-  padding_constant: 8
-  segm_downsampling_rate: 8
+  imgScales: (2048, 512)
+  imgRatio: (0.5, 2.0)
+  imgCropSize: (512, 512)
+  cat_max_ratio: 0.75
+  padding_constant: 4
+  segm_downsampling_rate: 4
   random_flip: True
 
 MODEL:
   arch_encoder: "mit_b0"
   arch_decoder: "segformer_head"
   pretrained_segformer: "/content/drive/MyDrive/pretrained_segformer/segformer.b0.512x512.ade.160k.pth"
+  checkpoint: "checkpoint_epoch_1.pth"
   fc_dim: None
   in_channels: [32, 64, 160, 256]
   embedding_dim: 256
 
+TRAIN:
+  batch_size_per_gpu: 1
+  num_epoch: 1 #25
+  start_epoch: 0
+  epoch_iters: 5000
+  optim: "SGD"
+  lr_encoder: 0.03
+  lr_decoder: 0.03
+  lr_pow: 0.9
+  beta1: 0.9
+  weight_decay: 1e-4
+  deep_sup_scale: 0.4
+  fix_bn: False
+  workers: 2
+  disp_iter: 20
+  seed: 304
 
-
+DIR: "ckpt/ade20k-segformer-b0-2"

@@ -17,7 +17,7 @@ from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate,
 
 
 # train one epoch
-def train(segmentation_module, loader, optimizers, history, epoch, cfg):
+def train(segmentation_module, loader, optimizers, history, epoch, cfg, iteration):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     ave_total_loss = AverageMeter()
@@ -27,9 +27,14 @@ def train(segmentation_module, loader, optimizers, history, epoch, cfg):
 
     # main loop
     tic = time.time()
+    # for i in range(cfg.TRAIN.epoch_iters):
+    #     # load a batch of data
+    #     batch_data = next(iterator)
     for i, batch_data in enumerate(loader):
-        # load a batch of data
-        batch_data = batch_data.cuda()
+        if i <= iteration:
+            continue
+        # assert len(batch_data) == 1
+        # batch_data = batch_data[0]
         data_time.update(time.time() - tic)
         segmentation_module.zero_grad()
 
@@ -69,9 +74,11 @@ def train(segmentation_module, loader, optimizers, history, epoch, cfg):
             history['train']['epoch'].append(fractional_epoch)
             history['train']['loss'].append(loss.data.item())
             history['train']['acc'].append(acc.data.item())
+            nets = (segmentation_module.encoder, segmentation_module.decoder, segmentation_module.crit)
+            checkpoint(nets, history, cfg, epoch, i, optimizers[0], optimizers[1])
 
 
-def checkpoint(nets, history, cfg, epoch, encoder_opt=None, decoder_opt=None):
+def checkpoint(nets, history, cfg, epoch, iter=0, encoder_opt=None, decoder_opt=None):
     print('Saving checkpoints...')
     (net_encoder, net_decoder, crit) = nets
 
@@ -87,7 +94,18 @@ def checkpoint(nets, history, cfg, epoch, encoder_opt=None, decoder_opt=None):
             'decoder_opt': dict_dec_opt,
             'history': history,
             'epoch': epoch,
-            }, '{}/{}'.format(cfg.DIR, cfg.MODEL.checkpoint))
+            'iteration': iter,
+            }, '{}/checkpoint_epoch_{}.pth'.format(cfg.DIR, epoch))
+
+    # torch.save(
+    #     history,
+    #     '{}/history_epoch_{}.pth'.format(cfg.DIR, epoch))
+    # torch.save(
+    #     dict_encoder,
+    #     '{}/encoder_epoch_{}.pth'.format(cfg.DIR, epoch))
+    # torch.save(
+    #     dict_decoder,
+    #     '{}/decoder_epoch_{}.pth'.format(cfg.DIR, epoch))
 
 
 def group_weight(module):
@@ -103,6 +121,11 @@ def group_weight(module):
             if m.bias is not None:
                 group_no_decay.append(m.bias)
         elif isinstance(m, nn.modules.batchnorm._BatchNorm):
+            if m.weight is not None:
+                group_no_decay.append(m.weight)
+            if m.bias is not None:
+                group_no_decay.append(m.bias)
+        elif isinstance(m, nn.LayerNorm):
             if m.weight is not None:
                 group_no_decay.append(m.weight)
             if m.bias is not None:
@@ -173,10 +196,11 @@ def main(cfg):
         dataset_train,
         batch_size=cfg.TRAIN.batch_size_per_gpu,  # we have modified data_parallel
         shuffle=True,  # we do not use this param
-        collate_fn=train_collate,
+        collate_fn= train_collate, #user_scattered_collate,
         num_workers=cfg.TRAIN.workers,
         drop_last=True,
         pin_memory=True)
+    cfg.TRAIN.max_iters = len(loader_train) * cfg.TRAIN.num_epoch
     print('1 Epoch = {} iters'.format(len(loader_train)))
 
     # create loader iterator
@@ -189,7 +213,7 @@ def main(cfg):
     #         device_ids=gpus)
     #     # For sync bn
     #     patch_replication_callback(segmentation_module)
-    segmentation_module.cuda()
+    # segmentation_module.cuda()
 
     # Set up optimizers
     nets = (net_encoder, net_decoder, crit)
@@ -198,6 +222,9 @@ def main(cfg):
     # Main loop
     history = {'train': {'epoch': [], 'loss': [], 'acc': []}}
 
+    # Load checkpoints
+    iteration = -1
+    
     if cfg.MODEL.checkpoint:
         ckpt_file = os.path.join(cfg.DIR, cfg.MODEL.checkpoint)
         if os.path.isfile(ckpt_file):
@@ -208,12 +235,13 @@ def main(cfg):
             optimizers[1].load_state_dict(state_dict['decoder_opt'])
             history = state_dict['history']
             cfg.TRAIN.start_epoch = state_dict['epoch'] - 1
+            iteration = state_dict['iteration']
 
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
-        train(segmentation_module, loader_train, optimizers, history, epoch+1, cfg)
+        train(segmentation_module, loader_train, optimizers, history, epoch+1, cfg, iteration)
 
         # checkpointing
-        checkpoint(nets, history, cfg, epoch+1, optimizers[0], optimizers[1])
+        checkpoint(nets, history, cfg, epoch+1)
 
     print('Training Done!')
 
@@ -261,13 +289,13 @@ if __name__ == '__main__':
         f.write("{}".format(cfg))
 
     # Start from checkpoint
-    # if cfg.TRAIN.start_epoch > 0:
-    #     cfg.MODEL.weights_encoder = os.path.join(
-    #         cfg.DIR, 'encoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
-    #     cfg.MODEL.weights_decoder = os.path.join(
-    #         cfg.DIR, 'decoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
-    #     assert os.path.exists(cfg.MODEL.weights_encoder) and \
-    #         os.path.exists(cfg.MODEL.weights_decoder), "checkpoint does not exitst!"
+    if cfg.TRAIN.start_epoch > 0:
+        cfg.MODEL.weights_encoder = os.path.join(
+            cfg.DIR, 'encoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
+        cfg.MODEL.weights_decoder = os.path.join(
+            cfg.DIR, 'decoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
+        assert os.path.exists(cfg.MODEL.weights_encoder) and \
+            os.path.exists(cfg.MODEL.weights_decoder), "checkpoint does not exitst!"
 
     # Parse gpu ids
     # gpus = parse_devices(args.gpus)
@@ -275,10 +303,9 @@ if __name__ == '__main__':
     # gpus = [int(x) for x in gpus]
     # num_gpus = len(gpus)
     # cfg.TRAIN.batch_size = num_gpus * cfg.TRAIN.batch_size_per_gpu
-
-    # cfg.TRAIN.max_iters = cfg.TRAIN.epoch_iters * cfg.TRAIN.num_epoch
-    # cfg.TRAIN.running_lr_encoder = cfg.TRAIN.lr_encoder
-    # cfg.TRAIN.running_lr_decoder = cfg.TRAIN.lr_decoder
+    cfg.TRAIN.batch_size = cfg.TRAIN.batch_size_per_gpu
+    cfg.TRAIN.running_lr_encoder = cfg.TRAIN.lr_encoder
+    cfg.TRAIN.running_lr_decoder = cfg.TRAIN.lr_decoder
 
     random.seed(cfg.TRAIN.seed)
     torch.manual_seed(cfg.TRAIN.seed)

@@ -7,7 +7,7 @@ import collections
 from torch.nn.parallel._functions import Gather
 
 
-__all__ = ['UserScatteredDataParallel', 'user_scattered_collate', 'async_copy_to']
+__all__ = ['UserScatteredDataParallel', 'user_scattered_collate', 'async_copy_to', 'train_collate']
 
 
 def async_copy_to(obj, dev, main_stream=None):
@@ -65,6 +65,11 @@ class UserScatteredDataParallel(DictGatherDataParallel):
 def user_scattered_collate(batch):
     return batch
 
+def train_collate(batch):
+    output_batch = {}
+    output_batch['img_data'] = torch.stack([item['img_data'] for item in batch])
+    output_batch['seg_label'] = torch.stack([item['seg_label'] for item in batch])
+    return output_batch
 
 def _async_copy(inputs, device_ids):
     nr_devs = len(device_ids)

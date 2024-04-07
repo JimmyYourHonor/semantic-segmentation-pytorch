@@ -33,7 +33,8 @@ class SegmentationModule(SegmentationModuleBase):
                 (pred, pred_deepsup) = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True))
             else:
                 pred = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True))
-
+            pred = nn.functional.interpolate(pred, size=feed_dict['seg_label'].shape[-2:], mode='bilinear', align_corners=False)
+            pred = nn.functional.log_softmax(pred, dim=1)
             loss = self.crit(pred, feed_dict['seg_label'])
             if self.deep_sup_scale is not None:
                 loss_deepsup = self.crit(pred_deepsup, feed_dict['seg_label'])
@@ -657,7 +658,7 @@ class SegformerHead(nn.Module):
             x = nn.functional.interpolate(
                 x, size=segSize, mode='bilinear', align_corners=False)
             x = nn.functional.softmax(x, dim=1)
-        else:
-            x = nn.functional.log_softmax(x, dim=1)
+        # else:
+        #     x = nn.functional.log_softmax(x, dim=1)
 
         return x
