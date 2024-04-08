@@ -214,7 +214,7 @@ def main(cfg):
             optimizers[0].load_state_dict(state_dict['encoder_opt'])
             optimizers[1].load_state_dict(state_dict['decoder_opt'])
             history = state_dict['history']
-            cfg.TRAIN.start_epoch = state_dict['epoch'] - 1
+            cfg.TRAIN.start_epoch = state_dict['epoch']
 
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
         train(segmentation_module, loader_train, optimizers, history, epoch+1, cfg)
