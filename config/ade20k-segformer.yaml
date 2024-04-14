@@ -28,8 +28,8 @@ TRAIN:
   start_epoch: 0
   epoch_iters: 5000
   optim: "SGD"
-  lr_encoder: 0.02
-  lr_decoder: 0.02
+  lr_encoder: 0.01
+  lr_decoder: 0.01
   lr_pow: 0.9
   beta1: 0.9
   weight_decay: 1e-4
