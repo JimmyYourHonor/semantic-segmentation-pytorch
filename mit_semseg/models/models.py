@@ -1,22 +1,37 @@
 import torch
 import torch.nn as nn
+import numpy as np
 from . import resnet, resnext, mobilenet, hrnet, segformer
 from mit_semseg.lib.nn import SynchronizedBatchNorm2d
 BatchNorm2d = SynchronizedBatchNorm2d
 
 
 class SegmentationModuleBase(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes=150):
         super(SegmentationModuleBase, self).__init__()
+        self.num_classes = num_classes
+        self.register_buffer("conf_mat", torch.zeros((num_classes, num_classes)).long())
 
-    def pixel_acc(self, pred, label):
-        _, preds = torch.max(pred, dim=1)
-        valid = (label >= 0).long()
-        acc_sum = torch.sum(valid * (preds == label).long())
-        pixel_sum = torch.sum(valid)
-        acc = acc_sum.float() / (pixel_sum.float() + 1e-10)
-        return acc
+    def reset_conf_mat(self):
+        self.conf_mat.data.zero_()
+    def update_conf_mat(self, pred, label):
+        label = label.reshape(-1)
+        _, pred = torch.max(pred, dim=1)
+        pred = pred.reshape(-1)
+        assert(pred.numel() == label.numel())
+        pred = pred[label >= 0]
+        label = label[label >= 0]
+        unique_mapping = label.long() * self.num_classes + pred.long()
+        update = torch.bincount(unique_mapping, minlength=self.num_classes**2)
+        self.conf_mat += update.reshape((self.num_classes, self.num_classes))
 
+    def get_acc_and_miou(self):
+        acc = torch.sum(torch.diagonal(self.conf_mat)) / (torch.sum(self.conf_mat) + 1e-10)
+        intersection = torch.diagonal(self.conf_mat)
+        union = torch.sum(self.conf_mat, dim=0) + torch.sum(self.conf_mat, dim=1) - intersection
+        iou = intersection/(union + 1e-10)
+        miou = torch.mean(iou)
+        return acc, miou
 
 class SegmentationModule(SegmentationModuleBase):
     def __init__(self, net_enc, net_dec, crit, deep_sup_scale=None):
@@ -40,8 +55,9 @@ class SegmentationModule(SegmentationModuleBase):
                 loss_deepsup = self.crit(pred_deepsup, feed_dict['seg_label'])
                 loss = loss + loss_deepsup * self.deep_sup_scale
 
-            acc = self.pixel_acc(pred, feed_dict['seg_label'])
-            return loss, acc
+            self.update_conf_mat(pred, feed_dict['seg_label'])
+            acc, miou = self.get_acc_and_miou()
+            return pred, loss, acc, miou
         # inference
         else:
             pred = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True), segSize=segSize)
@@ -55,8 +71,10 @@ class ModelBuilder:
         classname = m.__class__.__name__
         if classname.find('Conv') != -1:
             nn.init.kaiming_normal_(m.weight.data)
+            if m.bias is not None:
+                m.bias.data = torch.log(torch.from_numpy(np.load('data/label_bias.npy')).float())
         elif classname.find('BatchNorm') != -1:
-            m.weight.data.fill_(1.)
+            m.weight.data.fill_(0.1)
             m.bias.data.fill_(1e-4)
         #elif classname.find('Linear') != -1:
         #    m.weight.data.normal_(0.0, 0.0001)

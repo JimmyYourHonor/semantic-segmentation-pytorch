@@ -8,11 +8,15 @@ from distutils.version import LooseVersion
 # Numerical libs
 import torch
 import torch.nn as nn
+import numpy as np
+from scipy.io import loadmat
+from PIL import Image
 # Our libs
 from mit_semseg.config import cfg
-from mit_semseg.dataset import TrainDataset
+from mit_semseg.dataset import TrainDataset, ValDataset
 from mit_semseg.models import ModelBuilder, SegmentationModule
-from mit_semseg.utils import AverageMeter, parse_devices, setup_logger
+from mit_semseg.utils import AverageMeter, parse_devices, setup_logger, accuracy, intersectionAndUnion, colorEncode
+from mit_semseg.lib.utils import as_numpy
 from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback, train_collate
 
 
@@ -138,16 +142,26 @@ def group_weight(module):
 
 def create_optimizers(nets, cfg):
     (net_encoder, net_decoder, crit) = nets
-    optimizer_encoder = torch.optim.SGD(
+    # optimizer_encoder = torch.optim.SGD(
+    #     group_weight(net_encoder),
+    #     lr=cfg.TRAIN.lr_encoder,
+    #     momentum=cfg.TRAIN.beta1,
+    #     weight_decay=cfg.TRAIN.weight_decay)
+    # optimizer_decoder = torch.optim.SGD(
+    #     group_weight(net_decoder),
+    #     lr=cfg.TRAIN.lr_decoder,
+    #     momentum=cfg.TRAIN.beta1,
+    #     weight_decay=cfg.TRAIN.weight_decay)
+    optimizer_encoder = torch.optim.AdamW(
         group_weight(net_encoder),
-        lr=cfg.TRAIN.lr_encoder,
-        momentum=cfg.TRAIN.beta1,
-        weight_decay=cfg.TRAIN.weight_decay)
-    optimizer_decoder = torch.optim.SGD(
+        lr=3e-4,
+        betas=[0.9, 0.999],
+        weight_decay=0.01)
+    optimizer_decoder = torch.optim.AdamW(
         group_weight(net_decoder),
-        lr=cfg.TRAIN.lr_decoder,
-        momentum=cfg.TRAIN.beta1,
-        weight_decay=cfg.TRAIN.weight_decay)
+        lr=3e-4,
+        betas=[0.9, 0.999],
+        weight_decay=0.01)
     return (optimizer_encoder, optimizer_decoder)
 
 
@@ -162,6 +176,23 @@ def adjust_learning_rate(optimizers, cur_iter, cfg):
     for param_group in optimizer_decoder.param_groups:
         param_group['lr'] = cfg.TRAIN.running_lr_decoder
 
+colors = loadmat('data/color150.mat')['colors']
+
+
+def visualize_result(data, pred, savepath):
+    (img, seg) = data
+
+    # segmentation
+    seg_color = colorEncode(seg, colors)
+
+    # prediction
+    pred_color = colorEncode(pred, colors)
+
+    # aggregate images and save
+    im_vis = np.concatenate((img, seg_color, pred_color),
+                            axis=1).astype(np.uint8)
+
+    Image.fromarray(im_vis).save(savepath)
 
 def main(cfg):
     # Network Builders
@@ -200,6 +231,20 @@ def main(cfg):
         num_workers=cfg.TRAIN.workers,
         drop_last=True,
         pin_memory=True)
+    
+    # Dataset and Loader
+    dataset_val = ValDataset(
+        cfg.DATASET.root_dataset,
+        cfg.DATASET.list_val,
+        cfg.DATASET)
+    loader_val = torch.utils.data.DataLoader(
+        dataset_val,
+        batch_size=cfg.VAL.batch_size,
+        shuffle=False,
+        collate_fn=user_scattered_collate,
+        num_workers=5,
+        drop_last=True)
+    
     cfg.TRAIN.max_iters = len(loader_train) * cfg.TRAIN.num_epoch
     print('1 Epoch = {} iters'.format(len(loader_train)))
 
@@ -225,23 +270,84 @@ def main(cfg):
     # Load checkpoints
     iteration = -1
     
-    if cfg.MODEL.checkpoint:
-        ckpt_file = os.path.join(cfg.DIR, cfg.MODEL.checkpoint)
-        if os.path.isfile(ckpt_file):
-            state_dict = torch.load(ckpt_file, map_location=lambda storage, loc: storage)
-            segmentation_module.encoder.load_state_dict(state_dict['encoder'])
-            segmentation_module.decoder.load_state_dict(state_dict['decoder'])
-            optimizers[0].load_state_dict(state_dict['encoder_opt'])
-            optimizers[1].load_state_dict(state_dict['decoder_opt'])
-            history = state_dict['history']
-            cfg.TRAIN.start_epoch = state_dict['epoch'] - 1
-            iteration = state_dict['iteration']
+    # if cfg.MODEL.checkpoint:
+    #     ckpt_file = os.path.join(cfg.DIR, cfg.MODEL.checkpoint)
+    #     if os.path.isfile(ckpt_file):
+    #         state_dict = torch.load(ckpt_file, map_location=lambda storage, loc: storage)
+    #         segmentation_module.encoder.load_state_dict(state_dict['encoder'])
+    #         segmentation_module.decoder.load_state_dict(state_dict['decoder'])
+    #         optimizers[0].load_state_dict(state_dict['encoder_opt'])
+    #         optimizers[1].load_state_dict(state_dict['decoder_opt'])
+    #         history = state_dict['history']
+    #         cfg.TRAIN.start_epoch = state_dict['epoch'] - 1
+    #         iteration = state_dict['iteration']
 
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
-        train(segmentation_module, loader_train, optimizers, history, epoch+1, cfg, iteration)
+        #train(segmentation_module, loader_train, optimizers, history, epoch+1, cfg, iteration)
+        loss_meter = AverageMeter()
+        batch_data = next(iter(loader_train))
+        batch_data['img_data'].requires_grad =True
+        segmentation_module.eval()
+        for _ in range(1):
+            segmentation_module.zero_grad()
+            pred, _, _, _ = segmentation_module(batch_data)
+            loss = torch.sum(pred[0])
+            loss.backward(retain_graph=True)
+            print(torch.max(torch.abs(batch_data['img_data'].grad[0])))
+            print(torch.max(torch.abs(batch_data['img_data'].grad[1])))
+            # for optimizer in optimizers:
+            #     optimizer.step()
+            # loss_meter.update(loss.data.item())
+            # print(loss_meter.average(), acc.data.item(), miou.data.item())
+            # segmentation_module.reset_conf_mat()
+        # segmentation_module.eval()
+        # segmentation_module.decoder.use_softmax = True
+        # acc_meter = AverageMeter()
+        # intersection_meter = AverageMeter()
+        # union_meter = AverageMeter()
+        # for i, batch_data in enumerate(loader_val):
+        #     if i > 200:
+        #         return
+        #     # process data
+        #     batch_data = batch_data[0]
+        #     seg_label = as_numpy(batch_data['seg_label'][0])
+        #     img_resized_list = batch_data['img_data']
 
+        #     with torch.no_grad():
+        #         segSize = (seg_label.shape[0], seg_label.shape[1])
+        #         scores = torch.zeros(1, cfg.DATASET.num_class, segSize[0], segSize[1])
+
+        #         for img in img_resized_list:
+        #             feed_dict = batch_data.copy()
+        #             feed_dict['img_data'] = img
+        #             del feed_dict['img_ori']
+        #             del feed_dict['info']
+
+        #             # forward pass
+        #             scores_tmp = segmentation_module(feed_dict, segSize=segSize)
+        #             scores = scores + scores_tmp / len(cfg.DATASET.imgSizes)
+
+        #         _, pred = torch.max(scores, dim=1)
+        #         pred = as_numpy(pred.squeeze(0).cpu())
+
+        #     # calculate accuracy
+        #     acc, pix = accuracy(pred, seg_label)
+        #     intersection, union = intersectionAndUnion(pred, seg_label, cfg.DATASET.num_class)
+        #     acc_meter.update(acc, pix)
+        #     intersection_meter.update(intersection)
+        #     union_meter.update(union)
+
+        #     # visualization
+        #     if i%100 == 0:
+        #         if not os.path.isdir(os.path.join(cfg.DIR, "result")):
+        #             os.makedirs(os.path.join(cfg.DIR, "result"))
+        #         visualize_result(
+        #             (batch_data['img_ori'], seg_label),
+        #             pred,
+        #             os.path.join(cfg.DIR, 'result', f'val_{i}.png')
+        #         )
         # checkpointing
-        checkpoint(nets, history, cfg, epoch+1)
+        #checkpoint(nets, history, cfg, epoch+1)
 
     print('Training Done!')
 
@@ -282,11 +388,11 @@ if __name__ == '__main__':
     logger.info("Running with config:\n{}".format(cfg))
 
     # Output directory
-    if not os.path.isdir(cfg.DIR):
-        os.makedirs(cfg.DIR)
-    logger.info("Outputing checkpoints to: {}".format(cfg.DIR))
-    with open(os.path.join(cfg.DIR, 'config.yaml'), 'w') as f:
-        f.write("{}".format(cfg))
+    # if not os.path.isdir(cfg.DIR):
+    #     os.makedirs(cfg.DIR)
+    # logger.info("Outputing checkpoints to: {}".format(cfg.DIR))
+    # with open(os.path.join(cfg.DIR, 'config.yaml'), 'w') as f:
+    #     f.write("{}".format(cfg))
 
     # Start from checkpoint
     if cfg.TRAIN.start_epoch > 0:

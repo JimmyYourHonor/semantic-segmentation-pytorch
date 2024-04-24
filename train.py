@@ -56,6 +56,8 @@ def train(segmentation_module, loader, optimizers, history, epoch, cfg):
         ave_total_loss.update(loss.data.item())
         ave_acc.update(acc.data.item()*100)
 
+        # update union and intersection
+
         # calculate accuracy, and display
         if i % cfg.TRAIN.disp_iter == 0:
             print('Epoch: [{}][{}/{}], Time: {:.2f}, Data: {:.2f}, '

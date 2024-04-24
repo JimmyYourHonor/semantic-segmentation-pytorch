@@ -376,7 +376,7 @@ class ValDataset(BaseDataset):
             img_resized_list.append(img_resized)
 
         # segm transform, to torch long tensor HxW
-        segm = self.segm_transform(segm)
+        segm = self.segm_transform(np.array(segm))
         batch_segms = torch.unsqueeze(segm, 0)
 
         output = dict()
