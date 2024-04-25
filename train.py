@@ -214,7 +214,7 @@ def main(cfg):
     optimizers = create_optimizers(nets, cfg)
 
     # Main loop
-    history = {'train': {'epoch': [], 'loss': [], 'acc': []}}
+    history = {'train': {'epoch': [], 'loss': [], 'acc': [], 'miou': []}}
 
     if cfg.MODEL.checkpoint:
         ckpt_file = os.path.join(cfg.DIR, cfg.MODEL.checkpoint)
