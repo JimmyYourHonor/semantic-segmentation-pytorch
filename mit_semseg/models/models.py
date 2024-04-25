@@ -57,7 +57,7 @@ class SegmentationModule(SegmentationModuleBase):
 
             self.update_conf_mat(pred, feed_dict['seg_label'])
             acc, miou = self.get_acc_and_miou()
-            return pred, loss, acc, miou
+            return loss, acc, miou
         # inference
         else:
             pred = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True), segSize=segSize)

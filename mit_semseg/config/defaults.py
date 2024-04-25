@@ -68,6 +68,8 @@ _C.TRAIN.lr_decoder = 0.02
 _C.TRAIN.lr_pow = 0.9
 # momentum for sgd, beta1 for adam
 _C.TRAIN.beta1 = 0.9
+# beta2 for adam or adamW
+_C.TRAIN.beta2 = 0.999
 # weights regularizer
 _C.TRAIN.weight_decay = 1e-4
 # the weighting of deep supervision loss

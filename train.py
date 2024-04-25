@@ -14,14 +14,12 @@ from mit_semseg.dataset import TrainDataset
 from mit_semseg.models import ModelBuilder, SegmentationModule
 from mit_semseg.utils import AverageMeter, parse_devices, setup_logger
 from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback, train_collate
-
+import matplotlib.pyplot as plt
 
 # train one epoch
-def train(segmentation_module, loader, optimizers, history, epoch, cfg):
+def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoch, cfg):
     batch_time = AverageMeter()
     data_time = AverageMeter()
-    ave_total_loss = AverageMeter()
-    ave_acc = AverageMeter()
 
     segmentation_module.train(not cfg.TRAIN.fix_bn)
 
@@ -39,9 +37,8 @@ def train(segmentation_module, loader, optimizers, history, epoch, cfg):
         adjust_learning_rate(optimizers, cur_iter, cfg)
 
         # forward pass
-        loss, acc = segmentation_module(batch_data)
+        loss, acc, miou = segmentation_module(batch_data)
         loss = loss.mean()
-        acc = acc.mean()
 
         # Backward
         loss.backward()
@@ -54,7 +51,6 @@ def train(segmentation_module, loader, optimizers, history, epoch, cfg):
 
         # update average loss and acc
         ave_total_loss.update(loss.data.item())
-        ave_acc.update(acc.data.item()*100)
 
         # update union and intersection
 
@@ -62,16 +58,17 @@ def train(segmentation_module, loader, optimizers, history, epoch, cfg):
         if i % cfg.TRAIN.disp_iter == 0:
             print('Epoch: [{}][{}/{}], Time: {:.2f}, Data: {:.2f}, '
                   'lr_encoder: {:.6f}, lr_decoder: {:.6f}, '
-                  'Accuracy: {:4.2f}, Loss: {:.6f}'
+                  'Accuracy: {:4.2f}, miou: {:4.2f}, Loss: {:.6f}'
                   .format(epoch, i, len(loader),
                           batch_time.average(), data_time.average(),
                           cfg.TRAIN.running_lr_encoder, cfg.TRAIN.running_lr_decoder,
-                          ave_acc.average(), ave_total_loss.average()))
+                          acc.data.item()*100, miou.data.item()*100, ave_total_loss.average()))
 
             fractional_epoch = epoch - 1 + 1. * i / len(loader)
             history['train']['epoch'].append(fractional_epoch)
             history['train']['loss'].append(loss.data.item())
             history['train']['acc'].append(acc.data.item())
+            history['train']['miou'].append(miou.data.item())
 
 
 def checkpoint(nets, history, cfg, epoch, encoder_opt=None, decoder_opt=None):
@@ -123,16 +120,28 @@ def group_weight(module):
 
 def create_optimizers(nets, cfg):
     (net_encoder, net_decoder, crit) = nets
-    optimizer_encoder = torch.optim.SGD(
-        group_weight(net_encoder),
-        lr=cfg.TRAIN.lr_encoder,
-        momentum=cfg.TRAIN.beta1,
-        weight_decay=cfg.TRAIN.weight_decay)
-    optimizer_decoder = torch.optim.SGD(
-        group_weight(net_decoder),
-        lr=cfg.TRAIN.lr_decoder,
-        momentum=cfg.TRAIN.beta1,
-        weight_decay=cfg.TRAIN.weight_decay)
+    if cfg.TRAIN.optim == 'SGD':
+        optimizer_encoder = torch.optim.SGD(
+            group_weight(net_encoder),
+            lr=cfg.TRAIN.lr_encoder,
+            momentum=cfg.TRAIN.beta1,
+            weight_decay=cfg.TRAIN.weight_decay)
+        optimizer_decoder = torch.optim.SGD(
+            group_weight(net_decoder),
+            lr=cfg.TRAIN.lr_decoder,
+            momentum=cfg.TRAIN.beta1,
+            weight_decay=cfg.TRAIN.weight_decay)
+    if cfg.TRAIN.optim == 'ADAMW':
+        optimizer_encoder = torch.optim.AdamW(
+            group_weight(net_encoder),
+            lr=cfg.TRAIN.lr_encoder,
+            betas=[cfg.TRAIN.beta1, cfg.TRAIN.beta2],
+            weight_decay=cfg.TRAIN.weight_decay)
+        optimizer_decoder = torch.optim.AdamW(
+            group_weight(net_decoder),
+            lr=cfg.TRAIN.lr_decoder,
+            betas=[cfg.TRAIN.beta1, cfg.TRAIN.beta1],
+            weight_decay=cfg.TRAIN.weight_decay)
     return (optimizer_encoder, optimizer_decoder)
 
 
@@ -218,11 +227,20 @@ def main(cfg):
             history = state_dict['history']
             cfg.TRAIN.start_epoch = state_dict['epoch']
 
+    ave_total_loss = AverageMeter()
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
-        train(segmentation_module, loader_train, optimizers, history, epoch+1, cfg)
+        train(segmentation_module, loader_train, optimizers, ave_total_loss, history, epoch+1, cfg)
 
         # checkpointing
         checkpoint(nets, history, cfg, epoch+1, optimizers[0], optimizers[1])
+
+        # plot training loss, acc, and miou
+        plt.plot(history['train']['epoch'], history['train']['loss'])
+        plt.savefig(os.path.join(cfg.DIR ,'train_loss.png'), bbox_inches='tight')
+        plt.plot(history['train']['epoch'], history['train']['acc'])
+        plt.savefig(os.path.join(cfg.DIR ,'train_acc.png'), bbox_inches='tight')
+        plt.plot(history['train']['epoch'], history['train']['miou'])
+        plt.savefig(os.path.join(cfg.DIR ,'train_miou.png'), bbox_inches='tight')
 
     print('Training Done!')
 

@@ -1,6 +1,6 @@
 DATASET:
   root_dataset: "./data/"
-  list_train: "./data/training.odgt"
+  list_train: "./data/training_1k.odgt"
   list_val: "./data/validation.odgt"
   num_class: 150
   imgSizes: (512,)
@@ -27,11 +27,12 @@ TRAIN:
   num_epoch: 40
   start_epoch: 0
   epoch_iters: 5000
-  optim: "SGD"
-  lr_encoder: 0.02
-  lr_decoder: 0.02
-  lr_pow: 0.9
+  optim: "ADAMW"
+  lr_encoder: 6e-5
+  lr_decoder: 6e-5
+  lr_pow: 0.0
   beta1: 0.9
+  beta2: 0.999
   weight_decay: 1e-4
   deep_sup_scale: 0.4
   fix_bn: False
