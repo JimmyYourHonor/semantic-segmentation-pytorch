@@ -237,10 +237,14 @@ def main(cfg):
         # plot training loss, acc, and miou
         plt.plot(history['train']['epoch'], history['train']['loss'])
         plt.savefig(os.path.join(cfg.DIR ,'train_loss.png'), bbox_inches='tight')
+        plt.clf()
         plt.plot(history['train']['epoch'], history['train']['acc'])
         plt.savefig(os.path.join(cfg.DIR ,'train_acc.png'), bbox_inches='tight')
+        plt.clf()
         plt.plot(history['train']['epoch'], history['train']['miou'])
         plt.savefig(os.path.join(cfg.DIR ,'train_miou.png'), bbox_inches='tight')
+        plt.clf()
+        plt.close()
 
     print('Training Done!')
 
