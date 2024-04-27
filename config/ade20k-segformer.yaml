@@ -1,6 +1,6 @@
 DATASET:
   root_dataset: "./data/"
-  list_train: "./data/training_1k.odgt"
+  list_train: "./data/training.odgt"
   list_val: "./data/validation.odgt"
   num_class: 150
   imgSizes: (512,)
@@ -24,7 +24,7 @@ MODEL:
 
 TRAIN:
   batch_size_per_gpu: 16
-  num_epoch: 10
+  num_epoch: 40
   start_epoch: 0
   epoch_iters: 5000
   optim: "ADAMW"
@@ -38,6 +38,6 @@ TRAIN:
   fix_bn: False
   workers: 2
   disp_iter: 20
-  seed: 777
+  seed: 58743957
 
 DIR: "/content/drive/MyDrive/ckpt"
