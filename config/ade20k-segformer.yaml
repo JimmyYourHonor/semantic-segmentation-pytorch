@@ -29,11 +29,11 @@ TRAIN:
   epoch_iters: 5000
   optim: "ADAMW"
   lr_encoder: 6e-5
-  lr_decoder: 6e-5
-  lr_pow: 0.0
+  lr_decoder: 6e-4
+  lr_pow: 1.0
   beta1: 0.9
   beta2: 0.999
-  weight_decay: 1e-4
+  weight_decay: 0.01
   deep_sup_scale: 0.4
   fix_bn: False
   workers: 2
