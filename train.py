@@ -19,6 +19,7 @@ from mit_semseg.utils import AverageMeter, parse_devices, setup_logger, accuracy
 from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback, train_collate, async_copy_to
 from mit_semseg.lib.utils import as_numpy
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 colors = loadmat('data/color150.mat')['colors']
 def visualize_result(data, pred, savepath):
@@ -126,8 +127,41 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
 
         # Backward
         loss.backward()
+
+        # Save gradients and weights before update to compute stats
+        params_before = {}
+        grads = {}
+        for name, m in segmentation_module.named_modules():
+            if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
+                meta_name = ".".join(name.split(".")[:3])
+                if meta_name not in params_before:
+                    params_before[meta_name] = []
+                if meta_name not in grads:
+                    grads[meta_name] = []
+                params_before[meta_name].append(m.weight.detach().cpu())
+                grads[meta_name].append(m.weight.grad.detach().cpu())
+
         for optimizer in optimizers:
             optimizer.step()
+
+        params_after = {}
+        for name, m in segmentation_module.named_modules():
+            if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
+                meta_name = ".".join(name.split(".")[:3])
+                if meta_name not in params_after:
+                    params_after[meta_name] = []
+                params_after[meta_name].append(m.weight.detach().cpu())
+        # Get weights after update to compute stats
+        update_ratios = {}
+        grads_ratios = {}
+        for name in params_before.keys():
+            param_before = torch.cat([param.flatten() for param in params_before[name]])
+            param_after = torch.cat([param.flatten() for param in params_after[name]])
+            grad = torch.cat([param.flatten() for param in grads[name]])
+            update = param_after - param_before
+            update_ratios[name] = (update.std() / param_after.std()).log10().data.item()
+            grads_ratios[name] = nn.functional.cosine_similarity(grad, update, dim=0).data.item()
+
 
         # measure elapsed time
         batch_time.update(time.time() - tic)
@@ -153,6 +187,8 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
         history['train']['loss'].append(loss.data.item())
         history['train']['acc'].append(acc.data.item())
         history['train']['miou'].append(miou.data.item())
+        history['train']['update_ratios'].append(update_ratios)
+        history['train']['grad_ratios'].append(grads_ratios)
 
 
 def checkpoint(nets, history, cfg, epoch, encoder_opt=None, decoder_opt=None):
@@ -312,7 +348,7 @@ def main(cfg):
     optimizers = create_optimizers(nets, cfg)
 
     # Main loop
-    history = {'train': {'epoch': [], 'loss': [], 'acc': [], 'miou': []}}
+    history = {'train': {'epoch': [], 'loss': [], 'acc': [], 'miou': [], 'update_ratios': [], 'grad_ratios': []}}
 
     if cfg.MODEL.checkpoint:
         ckpt_file = os.path.join(cfg.DIR, cfg.MODEL.checkpoint)
@@ -341,6 +377,27 @@ def main(cfg):
         plt.clf()
         plt.plot(history['train']['epoch'], history['train']['miou'])
         plt.savefig(os.path.join(cfg.DIR ,'train_miou.png'), bbox_inches='tight')
+        plt.clf()
+        colors = sns.color_palette('hls', len(history['train']['update_ratios'][0]))
+        plt.gca().set_prop_cycle('color', colors)
+        # Also plot update_ratios and grad_ratios
+        legends = []
+        for name in history['train']['update_ratios'][0].keys():
+            plt.plot([history['train']['update_ratios'][j][name] for j in range(len(history['train']['update_ratios']))])
+            legends.append(name)
+        plt.plot([0, len(history['train']['update_ratios'])], [-3, -3], 'k') # these ratios should be ~1e-3, indicate on plot
+        plt.legend(legends)
+        plt.savefig(os.path.join(cfg.DIR ,'update_ratios.png'), bbox_inches='tight')
+        plt.clf()
+
+        colors = sns.color_palette('hls', len(history['train']['update_ratios'][0]))
+        plt.gca().set_prop_cycle('color', colors)
+        legends = []
+        for name in history['train']['grad_ratios'][0].keys():
+            plt.plot([history['train']['grad_ratios'][j][name] for j in range(len(history['train']['grad_ratios']))])
+            legends.append(name)
+        plt.legend(legends)
+        plt.savefig(os.path.join(cfg.DIR ,'grad_ratios.png'), bbox_inches='tight')
         plt.clf()
         plt.close()
 
