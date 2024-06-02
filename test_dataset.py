@@ -17,7 +17,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         "--cfg",
-        default="config/ade20k-resnet50dilated-ppm_deepsup.yaml",
+        default="config/ade20k-segformer-test.yaml",
         metavar="FILE",
         help="path to config file",
         type=str,

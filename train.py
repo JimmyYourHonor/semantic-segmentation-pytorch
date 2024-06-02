@@ -394,7 +394,8 @@ def main(cfg):
         plt.gca().set_prop_cycle('color', colors)
         legends = []
         for name in history['train']['grad_ratios'][0].keys():
-            plt.plot([history['train']['grad_ratios'][j][name] for j in range(len(history['train']['grad_ratios']))])
+            temp_list = [history['train']['grad_ratios'][j][name] for j in range(len(history['train']['grad_ratios']))]
+            plt.plot([sum(temp_list[i:i+10])/10 for i in range(10, len(temp_list))])
             legends.append(name)
         plt.legend(legends)
         plt.savefig(os.path.join(cfg.DIR ,'grad_ratios.png'), bbox_inches='tight')

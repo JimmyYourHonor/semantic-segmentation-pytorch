@@ -1,5 +1,6 @@
 import os
 import json
+import cv2
 import torch
 from torchvision import transforms
 import numpy as np
@@ -99,6 +100,51 @@ def random_crop(img, segm, crop_size, cat_max_ratio):
     img = crop(img, crop_bbox)
     segm = crop(segm, crop_bbox)
     return img, segm
+
+def convert(img, alpha=1, beta=0):
+    """Multiple with alpha and add beat with clip."""
+    img = img.astype(np.float32) * alpha + beta
+    img = np.clip(img, 0, 255)
+    img = img.astype(np.uint8)
+    return img
+
+def brightness(img, brightness_delta=32):
+    """Brightness distortion."""
+    if np.random.randint(2):
+        return convert(
+            img,
+            beta=np.random.uniform(-brightness_delta,
+                                brightness_delta))
+    return img
+
+def contrast(img, contrast_lower=0.5, contrast_upper=1.5):
+    """Contrast distortion."""
+    if np.random.randint(2):
+        return convert(
+            img,
+            alpha=np.random.uniform(contrast_lower, contrast_upper))
+    return img
+
+def saturation(img, saturation_lower=0.5, saturation_upper=1.5):
+    """Saturation distortion."""
+    if np.random.randint(2):
+        img = cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
+        img[:, :, 1] = convert(
+            img[:, :, 1],
+            alpha=np.random.uniform(saturation_lower,
+                                    saturation_upper))
+        img = cv2.cvtColor(img,cv2.COLOR_HSV2RGB)
+    return img
+
+def hue(img, hue_delta=18):
+    """Hue distortion."""
+    if np.random.randint(2):
+        img = cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
+        img[:, :,
+            0] = (img[:, :, 0].astype(int) +
+                    np.random.randint(-hue_delta, hue_delta)) % 180
+        img = cv2.cvtColor(img,cv2.COLOR_HSV2RGB)
+    return img
 
 class BaseDataset(torch.utils.data.Dataset):
     def __init__(self, odgt, opt, **kwargs):
@@ -204,7 +250,7 @@ class TrainDataset(BaseDataset):
         assert(img.size[1] == segm.size[1])
 
         # random_flip
-        if np.random.choice([0, 1]):
+        if np.random.randint(2):
             img = img.transpose(Image.FLIP_LEFT_RIGHT)
             segm = segm.transpose(Image.FLIP_LEFT_RIGHT)
         
@@ -212,13 +258,33 @@ class TrainDataset(BaseDataset):
         scale = random_sample_ratio(self.imgScales, self.imgRatio)
         img = imrescale(img, scale, 'bilinear')
         segm = imrescale(segm, scale, 'nearest')
-        
+
         # Convert to numpy
         img = np.array(img)
         segm = np.array(segm)
 
         # random crop
         img, segm = random_crop(img, segm, self.imgCropSize, self.cat_max_ratio)
+
+        # Apply photometric distortion
+        img = brightness(img)
+
+        # mode == 0 --> do random contrast first
+        # mode == 1 --> do random contrast last
+        mode = np.random.randint(2)
+        if mode == 1:
+            img = contrast(img)
+
+        # random saturation
+        img = saturation(img)
+
+        # random hue
+        img = hue(img)
+
+        # random contrast
+        if mode == 0:
+            img = contrast(img)
+
 
         # Pad
         img_pad = np.zeros((self.imgCropSize[0], self.imgCropSize[1], 3), np.uint8)
@@ -234,104 +300,10 @@ class TrainDataset(BaseDataset):
         # segm transform, to torch long tensor HxW
         segm = self.segm_transform(segm)
 
-            # # put into batch arrays
-            # batch_images[i][:, :img.shape[1], :img.shape[2]] = img
-            # batch_segms[i][:segm.shape[0], :segm.shape[1]] = segm
-
         output = dict()
         output['img_data'] = img
         output['seg_label'] = segm
         return output
-
-        # NOTE: random shuffle for the first time. shuffle in __init__ is useless
-        # if not self.if_shuffled:
-        #     np.random.seed(index)
-        #     np.random.shuffle(self.list_sample)
-        #     self.if_shuffled = True
-
-        # # get sub-batch candidates
-        # batch_records = self._get_sub_batch()
-
-        # resize all images' short edges to the chosen size
-        # if isinstance(self.imgSizes, list) or isinstance(self.imgSizes, tuple):
-        #     this_short_size = np.random.choice(self.imgSizes)
-        # else:
-        #     this_short_size = self.imgSizes
-
-        # calculate the BATCH's height and width
-        # since we concat more than one samples, the batch's h and w shall be larger than EACH sample
-        # batch_widths = np.zeros(self.batch_per_gpu, np.int32)
-        # batch_heights = np.zeros(self.batch_per_gpu, np.int32)
-        # for i in range(self.batch_per_gpu):
-        #     img_height, img_width = batch_records[i]['height'], batch_records[i]['width']
-        #     this_scale = min(
-        #         this_short_size / min(img_height, img_width), \
-        #         self.imgMaxSize / max(img_height, img_width))
-        #     batch_widths[i] = img_width * this_scale
-        #     batch_heights[i] = img_height * this_scale
-
-        # Here we must pad both input image and segmentation map to size h' and w' so that p | h' and p | w'
-        # batch_width = np.max(batch_widths)
-        # batch_height = np.max(batch_heights)
-        # batch_width = int(self.round2nearest_multiple(batch_width, self.padding_constant))
-        # batch_height = int(self.round2nearest_multiple(batch_height, self.padding_constant))
-
-        # assert self.padding_constant >= self.segm_downsampling_rate, \
-        #     'padding constant must be equal or large than segm downsamping rate'
-        # batch_images = torch.zeros(
-        #     self.batch_per_gpu, 3, batch_height, batch_width)
-        # batch_segms = torch.zeros(
-        #     self.batch_per_gpu,
-        #     batch_height // self.segm_downsampling_rate,
-        #     batch_width // self.segm_downsampling_rate).long()
-
-        # for i in range(self.batch_per_gpu):
-        #     this_record = batch_records[i]
-
-        #     # load image and label
-        #     image_path = os.path.join(self.root_dataset, this_record['fpath_img'])
-        #     segm_path = os.path.join(self.root_dataset, this_record['fpath_segm'])
-
-        #     img = Image.open(image_path).convert('RGB')
-        #     segm = Image.open(segm_path)
-        #     assert(segm.mode == "L")
-        #     assert(img.size[0] == segm.size[0])
-        #     assert(img.size[1] == segm.size[1])
-
-        #     # random_flip
-        #     if np.random.choice([0, 1]):
-        #         img = img.transpose(Image.FLIP_LEFT_RIGHT)
-        #         segm = segm.transpose(Image.FLIP_LEFT_RIGHT)
-
-        #     # note that each sample within a mini batch has different scale param
-        #     img = imresize(img, (batch_widths[i], batch_heights[i]), interp='bilinear')
-        #     segm = imresize(segm, (batch_widths[i], batch_heights[i]), interp='nearest')
-
-        #     # further downsample seg label, need to avoid seg label misalignment
-        #     segm_rounded_width = self.round2nearest_multiple(segm.size[0], self.segm_downsampling_rate)
-        #     segm_rounded_height = self.round2nearest_multiple(segm.size[1], self.segm_downsampling_rate)
-        #     segm_rounded = Image.new('L', (segm_rounded_width, segm_rounded_height), 0)
-        #     segm_rounded.paste(segm, (0, 0))
-        #     segm = imresize(
-        #         segm_rounded,
-        #         (segm_rounded.size[0] // self.segm_downsampling_rate, \
-        #          segm_rounded.size[1] // self.segm_downsampling_rate), \
-        #         interp='nearest')
-
-        #     # image transform, to torch float tensor 3xHxW
-        #     img = self.img_transform(img)
-
-        #     # segm transform, to torch long tensor HxW
-        #     segm = self.segm_transform(segm)
-
-        #     # put into batch arrays
-        #     batch_images[i][:, :img.shape[1], :img.shape[2]] = img
-        #     batch_segms[i][:segm.shape[0], :segm.shape[1]] = segm
-
-        # output = dict()
-        # output['img_data'] = batch_images
-        # output['seg_label'] = batch_segms
-        # return output
 
     def __len__(self):
         # return int(1e10) # It's a fake length due to the trick that every loader maintains its own list
