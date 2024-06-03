@@ -125,35 +125,41 @@ def main(cfg, gpu):
 
     segmentation_module = SegmentationModule(net_encoder, net_decoder, crit)
 
-    if cfg.MODEL.pretrained_segformer is not None:
-        # Load segformer
-        pretrained_weight = torch.load(
-            cfg.MODEL.pretrained_segformer, 
-            map_location=lambda storage, loc: storage)['state_dict']
-        new_pretrained_weight = {}
-        for k in pretrained_weight.keys():
-            if 'backbone' in k:
-                new_k = k.replace('backbone', 'encoder')
-            if 'decode_head' in k:
-                if 'conv_seg' in k:
-                    continue
-                elif k == 'decode_head.linear_fuse.conv.weight':
-                    new_k = 'decoder.linear_fuse.0.weight'
-                elif k == 'decode_head.linear_fuse.bn.weight':
-                    new_k = 'decoder.linear_fuse.1.weight'
-                elif k == 'decode_head.linear_fuse.bn.bias':
-                    new_k = 'decoder.linear_fuse.1.bias'
-                elif k == 'decode_head.linear_fuse.bn.running_mean':
-                    new_k = 'decoder.linear_fuse.1.running_mean'
-                elif k == 'decode_head.linear_fuse.bn.running_var':
-                    new_k = 'decoder.linear_fuse.1.running_var'
-                elif k == 'decode_head.linear_fuse.bn.num_batches_tracked':
-                    continue
-                else:
-                    new_k = k.replace('decode_head', 'decoder')
-            new_pretrained_weight[new_k] = pretrained_weight[k]
-        del pretrained_weight
-        segmentation_module.load_state_dict(new_pretrained_weight, strict=False)    
+    # if cfg.MODEL.pretrained_segformer is not None:
+    #     # Load segformer
+    #     pretrained_weight = torch.load(
+    #         cfg.MODEL.pretrained_segformer, 
+    #         map_location=lambda storage, loc: storage)['state_dict']
+    #     new_pretrained_weight = {}
+    #     for k in pretrained_weight.keys():
+    #         if 'backbone' in k:
+    #             new_k = k.replace('backbone', 'encoder')
+    #         if 'decode_head' in k:
+    #             if 'conv_seg' in k:
+    #                 continue
+    #             elif k == 'decode_head.linear_fuse.conv.weight':
+    #                 new_k = 'decoder.linear_fuse.0.weight'
+    #             elif k == 'decode_head.linear_fuse.bn.weight':
+    #                 new_k = 'decoder.linear_fuse.1.weight'
+    #             elif k == 'decode_head.linear_fuse.bn.bias':
+    #                 new_k = 'decoder.linear_fuse.1.bias'
+    #             elif k == 'decode_head.linear_fuse.bn.running_mean':
+    #                 new_k = 'decoder.linear_fuse.1.running_mean'
+    #             elif k == 'decode_head.linear_fuse.bn.running_var':
+    #                 new_k = 'decoder.linear_fuse.1.running_var'
+    #             elif k == 'decode_head.linear_fuse.bn.num_batches_tracked':
+    #                 continue
+    #             else:
+    #                 new_k = k.replace('decode_head', 'decoder')
+    #         new_pretrained_weight[new_k] = pretrained_weight[k]
+    #     del pretrained_weight
+    #     segmentation_module.load_state_dict(new_pretrained_weight, strict=False)
+    if cfg.MODEL.checkpoint:
+        ckpt_file = os.path.join(cfg.DIR, cfg.MODEL.checkpoint)
+        if os.path.isfile(ckpt_file):
+            state_dict = torch.load(ckpt_file, map_location=lambda storage, loc: storage)
+            segmentation_module.encoder.load_state_dict(state_dict['encoder'])
+            segmentation_module.decoder.load_state_dict(state_dict['decoder'])
 
     # Dataset and Loader
     dataset_val = ValDataset(
