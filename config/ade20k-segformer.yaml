@@ -24,7 +24,7 @@ MODEL:
 
 TRAIN:
   batch_size_per_gpu: 16
-  num_epoch: 80
+  num_epoch: 160
   start_epoch: 0
   epoch_iters: 5000
   optim: "ADAMW"
@@ -38,6 +38,6 @@ TRAIN:
   fix_bn: False
   workers: 2
   disp_iter: 20
-  seed: 58743957
+  seed: 934502
 
 DIR: "/content/drive/MyDrive/ckpt"
