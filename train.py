@@ -120,6 +120,7 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
         # adjust learning rate
         cur_iter = i + (epoch - 1) * len(loader)
         adjust_learning_rate(optimizers, cur_iter, cfg)
+        momentum_decay(optimizers, cur_iter, cfg)
 
         # forward pass
         loss, acc, miou = segmentation_module(batch_data)
@@ -175,11 +176,11 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
         # calculate accuracy, and display
         if i % cfg.TRAIN.disp_iter == 0:
             print('Epoch: [{}][{}/{}], Time: {:.2f}, Data: {:.2f}, '
-                  'lr_encoder: {:.6f}, lr_decoder: {:.6f}, '
+                  'lr_encoder: {:.6f}, lr_decoder: {:.6f}, momentum: {:.6f}, '
                   'Accuracy: {:4.2f}, miou: {:4.2f}, Loss: {:.6f}'
                   .format(epoch, i, len(loader),
                           batch_time.average(), data_time.average(),
-                          cfg.TRAIN.running_lr_encoder, cfg.TRAIN.running_lr_decoder,
+                          cfg.TRAIN.running_lr_encoder, cfg.TRAIN.running_lr_decoder, cfg.TRAIN.running_beta1,
                           acc.data.item()*100, miou.data.item()*100, ave_total_loss.average()))
 
         fractional_epoch = epoch - 1 + 1. * i / len(loader)
@@ -260,7 +261,7 @@ def create_optimizers(nets, cfg):
         optimizer_decoder = torch.optim.AdamW(
             group_weight(net_decoder),
             lr=cfg.TRAIN.lr_decoder,
-            betas=[cfg.TRAIN.beta1, cfg.TRAIN.beta1],
+            betas=[cfg.TRAIN.beta1, cfg.TRAIN.beta2],
             weight_decay=cfg.TRAIN.weight_decay)
     return (optimizer_encoder, optimizer_decoder)
 
@@ -276,6 +277,15 @@ def adjust_learning_rate(optimizers, cur_iter, cfg):
     for param_group in optimizer_decoder.param_groups:
         param_group['lr'] = cfg.TRAIN.running_lr_decoder
 
+def momentum_decay(optimizers, cur_iter, cfg):
+    p = 1. - float(cur_iter) / cfg.TRAIN.max_iters
+    cfg.TRAIN.running_beta1 = cfg.TRAIN.beta1 * (p / (1 - cfg.TRAIN.beta1 + cfg.TRAIN.beta1 * p))
+
+    (optimizer_encoder, optimizer_decoder) = optimizers
+    for param_group in optimizer_encoder.param_groups:
+        param_group['momentum'] = cfg.TRAIN.running_beta1
+    for param_group in optimizer_decoder.param_groups:
+        param_group['momentum'] = cfg.TRAIN.running_beta1
 
 def main(cfg):
     # Network Builders
