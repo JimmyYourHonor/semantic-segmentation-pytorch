@@ -254,10 +254,10 @@ class MixVisionTransformer(nn.Module):
         # Positional embedding
         self.use_pos_emb = use_pos_emb
         if (self.use_pos_emb):
-            self.emb_ch_0 = (torch.ceil((embed_dims[0]/num_heads[0])/4) * 2).int()
-            self.emb_ch_1 = (torch.ceil((embed_dims[1]/num_heads[1])/4) * 2).int()
-            self.emb_ch_2 = (torch.ceil((embed_dims[2]/num_heads[2])/4) * 2).int()
-            self.emb_ch_3 = (torch.ceil((embed_dims[3]/num_heads[3])/4) * 2).int()
+            self.emb_ch_0 = math.ceil((embed_dims[0]/num_heads[0])/4) * 2
+            self.emb_ch_1 = math.ceil((embed_dims[1]/num_heads[1])/4) * 2
+            self.emb_ch_2 = math.ceil((embed_dims[2]/num_heads[2])/4) * 2
+            self.emb_ch_3 = math.ceil((embed_dims[3]/num_heads[3])/4) * 2
             self.inv_freq_0 = 1.0 / (10000 ** (torch.arange(0, self.emb_ch_0, 2).float() / self.emb_ch_0))
             self.inv_freq_1 = 1.0 / (10000 ** (torch.arange(0, self.emb_ch_1, 2).float() / self.emb_ch_1))
             self.inv_freq_2 = 1.0 / (10000 ** (torch.arange(0, self.emb_ch_2, 2).float() / self.emb_ch_2))
