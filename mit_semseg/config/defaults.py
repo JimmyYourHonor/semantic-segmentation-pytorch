@@ -47,6 +47,7 @@ _C.MODEL.fc_dim = 2048
 _C.MODEL.in_channels = []
 _C.MODEL.embedding_dim = None
 _C.MODEL.pretrained_segformer = None
+_C.MODEL.use_pos_emb = False
 _C.MODEL.checkpoint = None
 
 # -----------------------------------------------------------------------------

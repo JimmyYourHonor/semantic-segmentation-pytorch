@@ -1,0 +1,44 @@
+DATASET:
+  root_dataset: "./data/"
+  list_train: "./data/training.odgt"
+  list_val: "./data/validation.odgt"
+  num_class: 150
+  imgSizes: (512,)
+  imgMaxSize: 2048
+  imgScales: (2048, 512)
+  imgRatio: (0.5, 2.0)
+  imgCropSize: (512, 512)
+  cat_max_ratio: 0.75
+  padding_constant: 4
+  segm_downsampling_rate: 4
+  random_flip: True
+
+MODEL:
+  arch_encoder: "mit_b0"
+  arch_decoder: "segformer_head"
+  pretrained_segformer: "/content/drive/MyDrive/pretrained_segformer/segformer.b0.512x512.ade.160k.pth"
+  checkpoint: "checkpoint.pth"
+  fc_dim: None
+  in_channels: [32, 64, 160, 256]
+  embedding_dim: 256
+  use_pos_emb: True
+
+TRAIN:
+  batch_size_per_gpu: 16
+  num_epoch: 160
+  start_epoch: 0
+  epoch_iters: 5000
+  optim: "ADAMW"
+  lr_encoder: 6e-5
+  lr_decoder: 6e-4
+  lr_pow: 1.0
+  beta1: 0.9
+  beta2: 0.999
+  weight_decay: 0.01
+  deep_sup_scale: 0.4
+  fix_bn: False
+  workers: 2
+  disp_iter: 20
+  seed: 934502
+
+DIR: "/content/drive/MyDrive/ckpt"

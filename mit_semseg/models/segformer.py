@@ -19,6 +19,31 @@ model_paths = {
     'mit_b2': '/content/drive/MyDrive/pretrained_mit/mit_b2.pth',
 }
 
+def get_emb(sin_inp):
+    """
+    Gets a base embedding for one dimension with sin and cos intertwined
+    """
+    emb = torch.stack((sin_inp.sin(), sin_inp.cos()), dim=-1)
+    return torch.flatten(emb, -2, -1)
+
+def img_size_to_emb(height, width, channel, freq):
+    pos_x = torch.arange(height, device=freq.device, dtype=freq.dtype)
+    pos_y = torch.arange(width, device=freq.device, dtype=freq.dtype)
+    sin_inp_x = torch.outer(pos_x, freq)
+    sin_inp_y = torch.outer(pos_y, freq)
+    emb_x = get_emb(sin_inp_x).unsqueeze(1)
+    emb_y = get_emb(sin_inp_y)
+    emb = torch.zeros(
+        (height, width, channel * 2),
+        device=freq.device,
+        dtype=freq.dtype,
+    )
+    emb[:, :, : channel] = emb_x
+    emb[:, :, channel : 2 * channel] = emb_y
+
+    emb = emb.flatten(0,1).unsqueeze(0).unsqueeze(2)
+    return emb
+
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
@@ -95,7 +120,7 @@ class Attention(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
 
-    def forward(self, x, H, W):
+    def forward(self, x, H, W, pos_emb=None):
         B, N, C = x.shape
         q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
 
@@ -107,6 +132,11 @@ class Attention(nn.Module):
         else:
             kv = self.kv(x).reshape(B, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         k, v = kv[0], kv[1]
+
+        if (pos_emb is not None):
+            # Only apply position embedding to q and k
+            q = q + pos_emb
+            k = k + pos_emb
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
@@ -152,8 +182,8 @@ class Block(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
 
-    def forward(self, x, H, W):
-        x = x + self.drop_path(self.attn(self.norm1(x), H, W))
+    def forward(self, x, H, W, pos_emb=None):
+        x = x + self.drop_path(self.attn(self.norm1(x), H, W, pos_emb=None))
         x = x + self.drop_path(self.mlp(self.norm2(x), H, W))
 
         return x
@@ -206,7 +236,7 @@ class MixVisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
                  num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
                  attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm,
-                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1]):
+                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], use_pos_emb=False):
         super().__init__()
         self.num_classes = num_classes
         self.depths = depths
@@ -220,6 +250,18 @@ class MixVisionTransformer(nn.Module):
                                               embed_dim=embed_dims[2])
         self.patch_embed4 = OverlapPatchEmbed(img_size=img_size // 16, patch_size=3, stride=2, in_chans=embed_dims[2],
                                               embed_dim=embed_dims[3])
+
+        # Positional embedding
+        self.use_pos_emb = use_pos_emb
+        if (self.use_pos_emb):
+            self.emb_ch_0 = (torch.ceil((embed_dims[0]/num_heads[0])/4) * 2).int()
+            self.emb_ch_1 = (torch.ceil((embed_dims[1]/num_heads[1])/4) * 2).int()
+            self.emb_ch_2 = (torch.ceil((embed_dims[2]/num_heads[2])/4) * 2).int()
+            self.emb_ch_3 = (torch.ceil((embed_dims[3]/num_heads[3])/4) * 2).int()
+            self.inv_freq_0 = 1.0 / (10000 ** (torch.arange(0, self.emb_ch_0, 2).float() / self.emb_ch_0))
+            self.inv_freq_1 = 1.0 / (10000 ** (torch.arange(0, self.emb_ch_1, 2).float() / self.emb_ch_1))
+            self.inv_freq_2 = 1.0 / (10000 ** (torch.arange(0, self.emb_ch_2, 2).float() / self.emb_ch_2))
+            self.inv_freq_3 = 1.0 / (10000 ** (torch.arange(0, self.emb_ch_3, 2).float() / self.emb_ch_3))
 
         # transformer encoder
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
@@ -318,32 +360,48 @@ class MixVisionTransformer(nn.Module):
 
         # stage 1
         x, H, W = self.patch_embed1(x)
+        if(self.use_pos_emb):
+            emb = img_size_to_emb(H, W, self.emb_ch_0, self.inv_freq_0.to(x.device))
+        else:
+            emb = None
         for i, blk in enumerate(self.block1):
-            x = blk(x, H, W)
+            x = blk(x, H, W, emb)
         x = self.norm1(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         # stage 2
         x, H, W = self.patch_embed2(x)
+        if(self.use_pos_emb):
+            emb = img_size_to_emb(H, W, self.emb_ch_1, self.inv_freq_1.to(x.device))
+        else:
+            emb = None
         for i, blk in enumerate(self.block2):
-            x = blk(x, H, W)
+            x = blk(x, H, W, emb)
         x = self.norm2(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         # stage 3
         x, H, W = self.patch_embed3(x)
+        if(self.use_pos_emb):
+            emb = img_size_to_emb(H, W, self.emb_ch_2, self.inv_freq_2.to(x.device))
+        else:
+            emb = None
         for i, blk in enumerate(self.block3):
-            x = blk(x, H, W)
+            x = blk(x, H, W, emb)
         x = self.norm3(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         # stage 4
         x, H, W = self.patch_embed4(x)
+        if(self.use_pos_emb):
+            emb = img_size_to_emb(H, W, self.emb_ch_3, self.inv_freq_3.to(x.device))
+        else:
+            emb = None
         for i, blk in enumerate(self.block4):
-            x = blk(x, H, W)
+            x = blk(x, H, W, emb)
         x = self.norm4(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
@@ -371,10 +429,10 @@ class DWConv(nn.Module):
         return x
 
         
-def mit_b0(pretrained=False):
+def mit_b0(pretrained=False, use_pos_emb=False):
     model = MixVisionTransformer(patch_size=4, embed_dims=[32, 64, 160, 256], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 2, 2], sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0, drop_path_rate=0.1)
+            drop_rate=0.0, drop_path_rate=0.1, use_pos_emb=use_pos_emb)
     if pretrained:
         model.load_state_dict(torch.load(model_paths['mit_b0']), strict=False)
     return model
