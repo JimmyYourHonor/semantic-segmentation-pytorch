@@ -41,7 +41,7 @@ def img_size_to_emb(height, width, channel, freq):
     emb[:, :, : channel] = emb_x
     emb[:, :, channel : 2 * channel] = emb_y
 
-    emb = emb.flatten(0,1).unsqueeze(0).unsqueeze(2)
+    emb = emb.flatten(0,1).unsqueeze(0).unsqueeze(0)
     return emb
 
 class Mlp(nn.Module):
@@ -120,7 +120,7 @@ class Attention(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
 
-    def forward(self, x, H, W, pos_emb=None):
+    def forward(self, x, H, W, pos_emb=None, pos_emb_sr=None):
         B, N, C = x.shape
         q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
 
@@ -136,7 +136,7 @@ class Attention(nn.Module):
         if (pos_emb is not None):
             # Only apply position embedding to q and k
             q = q + pos_emb
-            k = k + pos_emb
+            k = k + pos_emb_sr
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
@@ -182,8 +182,8 @@ class Block(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
 
-    def forward(self, x, H, W, pos_emb=None):
-        x = x + self.drop_path(self.attn(self.norm1(x), H, W, pos_emb=None))
+    def forward(self, x, H, W, pos_emb=None, pos_emb_sr=None):
+        x = x + self.drop_path(self.attn(self.norm1(x), H, W, pos_emb, pos_emb_sr))
         x = x + self.drop_path(self.mlp(self.norm2(x), H, W))
 
         return x
@@ -240,6 +240,7 @@ class MixVisionTransformer(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         self.depths = depths
+        self.sr_ratios = sr_ratios
 
         # patch_embed
         self.patch_embed1 = OverlapPatchEmbed(img_size=img_size, patch_size=7, stride=4, in_chans=in_chans,
@@ -362,10 +363,12 @@ class MixVisionTransformer(nn.Module):
         x, H, W = self.patch_embed1(x)
         if(self.use_pos_emb):
             emb = img_size_to_emb(H, W, self.emb_ch_0, self.inv_freq_0.to(x.device))
+            emb_sr = img_size_to_emb(H//self.sr_ratios[0], W//self.sr_ratios[0], self.emb_ch_0, self.inv_freq_0.to(x.device))
         else:
             emb = None
+            emb_sr = None
         for i, blk in enumerate(self.block1):
-            x = blk(x, H, W, emb)
+            x = blk(x, H, W, emb, emb_sr)
         x = self.norm1(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
@@ -374,10 +377,12 @@ class MixVisionTransformer(nn.Module):
         x, H, W = self.patch_embed2(x)
         if(self.use_pos_emb):
             emb = img_size_to_emb(H, W, self.emb_ch_1, self.inv_freq_1.to(x.device))
+            emb_sr = img_size_to_emb(H//self.sr_ratios[1], W//self.sr_ratios[1], self.emb_ch_1, self.inv_freq_1.to(x.device))
         else:
             emb = None
+            emb_sr = None
         for i, blk in enumerate(self.block2):
-            x = blk(x, H, W, emb)
+            x = blk(x, H, W, emb, emb_sr)
         x = self.norm2(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
@@ -386,10 +391,12 @@ class MixVisionTransformer(nn.Module):
         x, H, W = self.patch_embed3(x)
         if(self.use_pos_emb):
             emb = img_size_to_emb(H, W, self.emb_ch_2, self.inv_freq_2.to(x.device))
+            emb_sr = img_size_to_emb(H//self.sr_ratios[2], W//self.sr_ratios[2], self.emb_ch_2, self.inv_freq_2.to(x.device))
         else:
             emb = None
+            emb_sr = None
         for i, blk in enumerate(self.block3):
-            x = blk(x, H, W, emb)
+            x = blk(x, H, W, emb, emb_sr)
         x = self.norm3(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
@@ -398,10 +405,12 @@ class MixVisionTransformer(nn.Module):
         x, H, W = self.patch_embed4(x)
         if(self.use_pos_emb):
             emb = img_size_to_emb(H, W, self.emb_ch_3, self.inv_freq_3.to(x.device))
+            emb_sr = img_size_to_emb(H//self.sr_ratios[3], W//self.sr_ratios[3], self.emb_ch_3, self.inv_freq_3.to(x.device))
         else:
             emb = None
+            emb = None
         for i, blk in enumerate(self.block4):
-            x = blk(x, H, W, emb)
+            x = blk(x, H, W, emb, emb_sr)
         x = self.norm4(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
