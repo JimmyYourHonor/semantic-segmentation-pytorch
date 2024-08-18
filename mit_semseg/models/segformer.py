@@ -45,6 +45,10 @@ def img_size_to_emb(height, width, channel, freq):
     emb = emb.flatten(0,1).unsqueeze(0).unsqueeze(0)
     return emb
 
+def apply_rotatory_emb(x, pos_emb):
+    x_out = torch.cat((pos_emb[:,:,:,1::2]*x[:,:,:,1::2] - pos_emb[:,:,:,::2]*x[:,:,:,::2], pos_emb[:,:,:,1::2]*x[:,:,:,1::2] + pos_emb[:,:,:,::2]*x[:,:,:,::2]), dim=-1)
+    return x_out
+
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
@@ -136,8 +140,10 @@ class Attention(nn.Module):
 
         if (pos_emb is not None):
             # Only apply position embedding to q and k
-            q = q + pos_emb
-            k = k + pos_emb_sr
+            # q = q + pos_emb
+            # k = k + pos_emb_sr
+            q = apply_rotatory_emb(q, pos_emb)
+            k = apply_rotatory_emb(k, pos_emb_sr)
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
@@ -367,7 +373,7 @@ class MixVisionTransformer(nn.Module):
             emb_sr = F.interpolate(emb.reshape(1,H,W,-1).permute(0,3,1,2), 
                                    scale_factor=(1/self.sr_ratios[0],1/self.sr_ratios[0]), 
                                    mode='bilinear')
-            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1)
+            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
             emb = None
             emb_sr = None
@@ -384,7 +390,7 @@ class MixVisionTransformer(nn.Module):
             emb_sr = F.interpolate(emb.reshape(1,H,W,-1).permute(0,3,1,2), 
                                    scale_factor=(1/self.sr_ratios[1],1/self.sr_ratios[1]), 
                                    mode='bilinear')
-            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1)
+            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
             emb = None
             emb_sr = None
@@ -401,7 +407,7 @@ class MixVisionTransformer(nn.Module):
             emb_sr = F.interpolate(emb.reshape(1,H,W,-1).permute(0,3,1,2), 
                                    scale_factor=(1/self.sr_ratios[2],1/self.sr_ratios[2]), 
                                    mode='bilinear')
-            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1)
+            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
             emb = None
             emb_sr = None
@@ -418,7 +424,7 @@ class MixVisionTransformer(nn.Module):
             emb_sr = F.interpolate(emb.reshape(1,H,W,-1).permute(0,3,1,2), 
                                    scale_factor=(1/self.sr_ratios[3],1/self.sr_ratios[3]), 
                                    mode='bilinear')
-            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1)
+            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
             emb = None
             emb = None
