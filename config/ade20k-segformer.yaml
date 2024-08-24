@@ -40,4 +40,4 @@ TRAIN:
   disp_iter: 20
   seed: 934502
 
-DIR: "/content/drive/MyDrive/ckpt"
+DIR: "/content/drive/MyDrive/ckpt_deamon"

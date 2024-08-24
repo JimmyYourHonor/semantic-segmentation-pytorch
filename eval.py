@@ -39,11 +39,10 @@ def visualize_result(data, pred, dir_result):
 
 
 def evaluate(segmentation_module, loader, cfg, gpu):
-    acc_meter = AverageMeter()
-    intersection_meter = AverageMeter()
-    union_meter = AverageMeter()
+    acc_meter = [AverageMeter() for _ in cfg.imgSizes]
+    intersection_meter = [AverageMeter() for _ in cfg.imgSizes]
+    union_meter = [AverageMeter() for _ in cfg.imgSizes]
     time_meter = AverageMeter()
-
     segmentation_module.eval()
 
     pbar = tqdm(total=len(loader))
@@ -57,10 +56,10 @@ def evaluate(segmentation_module, loader, cfg, gpu):
         tic = time.perf_counter()
         with torch.no_grad():
             segSize = (seg_label.shape[0], seg_label.shape[1])
-            scores = torch.zeros(1, cfg.DATASET.num_class, segSize[0], segSize[1])
-            scores = async_copy_to(scores, gpu)
+            # scores = torch.zeros(1, cfg.DATASET.num_class, segSize[0], segSize[1])
+            # scores = async_copy_to(scores, gpu)
 
-            for img in img_resized_list:
+            for i, img in enumerate(img_resized_list):
                 feed_dict = batch_data.copy()
                 feed_dict['img_data'] = img
                 del feed_dict['img_ori']
@@ -68,21 +67,21 @@ def evaluate(segmentation_module, loader, cfg, gpu):
                 feed_dict = async_copy_to(feed_dict, gpu)
 
                 # forward pass
-                scores_tmp = segmentation_module(feed_dict, segSize=segSize)
-                scores = scores + scores_tmp / len(cfg.DATASET.imgSizes)
+                scores = segmentation_module(feed_dict, segSize=segSize)
+                # scores = scores + scores_tmp / len(cfg.DATASET.imgSizes)
 
-            _, pred = torch.max(scores, dim=1)
-            pred = as_numpy(pred.squeeze(0).cpu())
+                _, pred = torch.max(scores, dim=1)
+                pred = as_numpy(pred.squeeze(0).cpu())
+                
+                # calculate accuracy
+                acc, pix = accuracy(pred, seg_label)
+                intersection, union = intersectionAndUnion(pred, seg_label, cfg.DATASET.num_class)
+                acc_meter[i].update(acc, pix)
+                intersection_meter[i].update(intersection)
+                union_meter[i].update(union)
 
         torch.cuda.synchronize()
         time_meter.update(time.perf_counter() - tic)
-
-        # calculate accuracy
-        acc, pix = accuracy(pred, seg_label)
-        intersection, union = intersectionAndUnion(pred, seg_label, cfg.DATASET.num_class)
-        acc_meter.update(acc, pix)
-        intersection_meter.update(intersection)
-        union_meter.update(union)
 
         # visualization
         if cfg.VAL.visualize:
@@ -95,13 +94,20 @@ def evaluate(segmentation_module, loader, cfg, gpu):
         pbar.update(1)
 
     # summary
-    iou = intersection_meter.sum / (union_meter.sum + 1e-10)
+    iou = intersection_meter[0].sum / (union_meter[0].sum + 1e-10)
     for i, _iou in enumerate(iou):
         print('class [{}], IoU: {:.4f}'.format(i, _iou))
 
     print('[Eval Summary]:')
     print('Mean IoU: {:.4f}, Accuracy: {:.2f}%, Inference Time: {:.4f}s'
-          .format(iou.mean(), acc_meter.average()*100, time_meter.average()))
+          .format(iou.mean(), acc_meter[0].average()*100, time_meter.average()))
+    
+    if len(cfg.imgSizes) > 1:
+        acc_arr = np.array([acc_meter[i].average()*100 for i in range(len(cfg.imgSizes))])
+        miou_arr = np.array([(intersection_meter[i].sum / (union_meter[i].sum + 1e-10)).mean() 
+                             for i in range(len(cfg.imgSizes))])
+        np.save("accuracy", acc_arr)
+        np.save("miou", miou_arr)
 
 
 def main(cfg, gpu):
