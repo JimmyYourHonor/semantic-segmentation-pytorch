@@ -39,9 +39,9 @@ def visualize_result(data, pred, dir_result):
 
 
 def evaluate(segmentation_module, loader, cfg, gpu):
-    acc_meter = [AverageMeter() for _ in cfg.imgSizes]
-    intersection_meter = [AverageMeter() for _ in cfg.imgSizes]
-    union_meter = [AverageMeter() for _ in cfg.imgSizes]
+    acc_meter = [AverageMeter() for _ in cfg.DATASET.imgSizes]
+    intersection_meter = [AverageMeter() for _ in cfg.DATASET.imgSizes]
+    union_meter = [AverageMeter() for _ in cfg.DATASET.imgSizes]
     time_meter = AverageMeter()
     segmentation_module.eval()
 
@@ -102,10 +102,10 @@ def evaluate(segmentation_module, loader, cfg, gpu):
     print('Mean IoU: {:.4f}, Accuracy: {:.2f}%, Inference Time: {:.4f}s'
           .format(iou.mean(), acc_meter[0].average()*100, time_meter.average()))
     
-    if len(cfg.imgSizes) > 1:
-        acc_arr = np.array([acc_meter[i].average()*100 for i in range(len(cfg.imgSizes))])
+    if len(cfg.DATASET.imgSizes) > 1:
+        acc_arr = np.array([acc_meter[i].average()*100 for i in range(len(cfg.DATASET.imgSizes))])
         miou_arr = np.array([(intersection_meter[i].sum / (union_meter[i].sum + 1e-10)).mean() 
-                             for i in range(len(cfg.imgSizes))])
+                             for i in range(len(cfg.DATASET.imgSizes))])
         np.save("accuracy", acc_arr)
         np.save("miou", miou_arr)
 

@@ -3,7 +3,7 @@ DATASET:
   list_train: "./data/training.odgt"
   list_val: "./data/validation.odgt"
   num_class: 150
-  imgSizes: (512,)
+  imgSizes: (256, 320, 384, 448, 512, 640, 768, 896, 1024)
   imgMaxSize: 2048
   imgScales: (2048, 512)
   imgRatio: (0.5, 2.0)
