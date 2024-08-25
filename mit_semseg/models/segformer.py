@@ -378,7 +378,7 @@ class MixVisionTransformer(nn.Module):
                                    size=(H,W), mode='bilinear')
             emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
             emb_sr = F.interpolate(self.emb_0.reshape(1,512,512,-1).permute(0,3,1,2), 
-                                   size=(H/self.sr_ratios[0],W/self.sr_ratios[0]), 
+                                   size=(H//self.sr_ratios[0],W//self.sr_ratios[0]), 
                                    mode='bilinear')
             emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
@@ -398,7 +398,7 @@ class MixVisionTransformer(nn.Module):
                                    size=(H,W), mode='bilinear')
             emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
             emb_sr = F.interpolate(self.emb_1.reshape(1,512,512,-1).permute(0,3,1,2), 
-                                   size=(H/self.sr_ratios[1],W/self.sr_ratios[1]), 
+                                   size=(H//self.sr_ratios[1],W//self.sr_ratios[1]), 
                                    mode='bilinear')
             emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
@@ -418,7 +418,7 @@ class MixVisionTransformer(nn.Module):
                                    size=(H,W), mode='bilinear')
             emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
             emb_sr = F.interpolate(self.emb_2.reshape(1,512,512,-1).permute(0,3,1,2), 
-                                   size=(H/self.sr_ratios[2],W/self.sr_ratios[2]), 
+                                   size=(H//self.sr_ratios[2],W//self.sr_ratios[2]), 
                                    mode='bilinear')
             emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
@@ -438,7 +438,7 @@ class MixVisionTransformer(nn.Module):
                                    size=(H,W), mode='bilinear')
             emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
             emb_sr = F.interpolate(self.emb_3.reshape(1,512,512,-1).permute(0,3,1,2), 
-                                   size=(H/self.sr_ratios[3],W/self.sr_ratios[3]), 
+                                   size=(H//self.sr_ratios[3],W//self.sr_ratios[3]), 
                                    mode='bilinear')
             emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
