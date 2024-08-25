@@ -106,8 +106,8 @@ def evaluate(segmentation_module, loader, cfg, gpu):
         acc_arr = np.array([acc_meter[i].average()*100 for i in range(len(cfg.DATASET.imgSizes))])
         miou_arr = np.array([(intersection_meter[i].sum / (union_meter[i].sum + 1e-10)).mean() 
                              for i in range(len(cfg.DATASET.imgSizes))])
-        np.save("accuracy", acc_arr)
-        np.save("miou", miou_arr)
+        np.save(os.path.join(cfg.DIR, "result", "accuracy"), acc_arr)
+        np.save(os.path.join(cfg.DIR, "result", "miou"), miou_arr)
 
 
 def main(cfg, gpu):
