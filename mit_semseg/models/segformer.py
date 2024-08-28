@@ -270,10 +270,10 @@ class MixVisionTransformer(nn.Module):
             inv_freq_1 = 1.0 / (10000 ** (torch.arange(0, emb_ch_1, 2).float() / emb_ch_1))
             inv_freq_2 = 1.0 / (10000 ** (torch.arange(0, emb_ch_2, 2).float() / emb_ch_2))
             inv_freq_3 = 1.0 / (10000 ** (torch.arange(0, emb_ch_3, 2).float() / emb_ch_3))
-            self.emb_0 = img_size_to_emb(512, 512, emb_ch_0, inv_freq_0)
-            self.emb_1 = img_size_to_emb(512, 512, emb_ch_1, inv_freq_1)
-            self.emb_2 = img_size_to_emb(512, 512, emb_ch_2, inv_freq_2)
-            self.emb_3 = img_size_to_emb(512, 512, emb_ch_3, inv_freq_3)
+            self.emb_0 = img_size_to_emb(128, 128, emb_ch_0, inv_freq_0)
+            self.emb_1 = img_size_to_emb(64, 64, emb_ch_1, inv_freq_1)
+            self.emb_2 = img_size_to_emb(32, 32, emb_ch_2, inv_freq_2)
+            self.emb_3 = img_size_to_emb(16, 16, emb_ch_3, inv_freq_3)
 
         # transformer encoder
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
@@ -374,10 +374,10 @@ class MixVisionTransformer(nn.Module):
         x, H, W = self.patch_embed1(x)
         if(self.use_pos_emb):
             self.emb_0 = self.emb_0.to(x.device)
-            emb = F.interpolate(self.emb_0.reshape(1,512,512,-1).permute(0,3,1,2), 
+            emb = F.interpolate(self.emb_0.reshape(1,128,128,-1).permute(0,3,1,2), 
                                    size=(H,W), mode='bilinear')
             emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-            emb_sr = F.interpolate(self.emb_0.reshape(1,512,512,-1).permute(0,3,1,2), 
+            emb_sr = F.interpolate(self.emb_0.reshape(1,128,128,-1).permute(0,3,1,2), 
                                    size=(H//self.sr_ratios[0],W//self.sr_ratios[0]), 
                                    mode='bilinear')
             emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
@@ -394,10 +394,10 @@ class MixVisionTransformer(nn.Module):
         x, H, W = self.patch_embed2(x)
         if(self.use_pos_emb):
             self.emb_1 = self.emb_1.to(x.device)
-            emb = F.interpolate(self.emb_1.reshape(1,512,512,-1).permute(0,3,1,2), 
+            emb = F.interpolate(self.emb_1.reshape(1,64,64,-1).permute(0,3,1,2), 
                                    size=(H,W), mode='bilinear')
             emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-            emb_sr = F.interpolate(self.emb_1.reshape(1,512,512,-1).permute(0,3,1,2), 
+            emb_sr = F.interpolate(self.emb_1.reshape(1,64,64,-1).permute(0,3,1,2), 
                                    size=(H//self.sr_ratios[1],W//self.sr_ratios[1]), 
                                    mode='bilinear')
             emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
@@ -414,10 +414,10 @@ class MixVisionTransformer(nn.Module):
         x, H, W = self.patch_embed3(x)
         if(self.use_pos_emb):
             self.emb_2 = self.emb_2.to(x.device)
-            emb = F.interpolate(self.emb_2.reshape(1,512,512,-1).permute(0,3,1,2), 
+            emb = F.interpolate(self.emb_2.reshape(1,32,32,-1).permute(0,3,1,2), 
                                    size=(H,W), mode='bilinear')
             emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-            emb_sr = F.interpolate(self.emb_2.reshape(1,512,512,-1).permute(0,3,1,2), 
+            emb_sr = F.interpolate(self.emb_2.reshape(1,32,32,-1).permute(0,3,1,2), 
                                    size=(H//self.sr_ratios[2],W//self.sr_ratios[2]), 
                                    mode='bilinear')
             emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
@@ -434,10 +434,10 @@ class MixVisionTransformer(nn.Module):
         x, H, W = self.patch_embed4(x)
         if(self.use_pos_emb):
             self.emb_3 = self.emb_3.to(x.device)
-            emb = F.interpolate(self.emb_3.reshape(1,512,512,-1).permute(0,3,1,2), 
+            emb = F.interpolate(self.emb_3.reshape(1,16,16,-1).permute(0,3,1,2), 
                                    size=(H,W), mode='bilinear')
             emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-            emb_sr = F.interpolate(self.emb_3.reshape(1,512,512,-1).permute(0,3,1,2), 
+            emb_sr = F.interpolate(self.emb_3.reshape(1,16,16,-1).permute(0,3,1,2), 
                                    size=(H//self.sr_ratios[3],W//self.sr_ratios[3]), 
                                    mode='bilinear')
             emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
