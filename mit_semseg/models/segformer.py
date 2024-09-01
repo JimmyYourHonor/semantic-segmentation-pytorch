@@ -166,7 +166,7 @@ class Attention(nn.Module):
             kernel_sr, H_sr, W_sr = kernel // self.sr_ratio, H // self.sr_ratio, W // self.sr_ratio
             q = unfold_sliding_window(q, kernel, (B,C,H,W))
             k = unfold_sliding_window(k, kernel_sr, (B,C,H_sr,W_sr))
-            v = unfold_sliding_window(x, kernel_sr, (B,C,H_sr,W_sr))
+            v = unfold_sliding_window(v, kernel_sr, (B,C,H_sr,W_sr))
 
         if (pos_emb is not None):
             # Only apply position embedding to q and k
