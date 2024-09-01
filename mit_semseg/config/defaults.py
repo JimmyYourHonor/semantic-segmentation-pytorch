@@ -48,6 +48,7 @@ _C.MODEL.in_channels = []
 _C.MODEL.embedding_dim = None
 _C.MODEL.pretrained_segformer = None
 _C.MODEL.use_pos_emb = False
+_C.MODEL.sliding = False
 _C.MODEL.checkpoint = None
 
 # -----------------------------------------------------------------------------

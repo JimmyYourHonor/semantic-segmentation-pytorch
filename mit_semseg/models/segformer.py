@@ -49,6 +49,28 @@ def apply_rotatory_emb(x, pos_emb):
     x_out = torch.cat((pos_emb[:,:,:,1::2]*x[:,:,:,1::2] - pos_emb[:,:,:,::2]*x[:,:,:,::2], pos_emb[:,:,:,1::2]*x[:,:,:,1::2] + pos_emb[:,:,:,::2]*x[:,:,:,::2]), dim=-1)
     return x_out
 
+def unfold_sliding_window(x, kernel, x_shape):
+    B,C,H,W = x_shape
+    stride = kernel//2
+    x = x.transpose(1,2).reshape(B,C,H,W)
+    x = F.pad(x, (0,stride-1,0,stride-1))
+    x = F.unfold(x, kernel_size=(kernel,kernel), stride=stride)
+    x = x.reshape(B,C,kernel,kernel,-1).permute(0,4,2,3,1).reshape(-1,kernel*kernel,C)
+    return x
+
+def fold_sliding_window(x, kernel, x_shape):
+    B,C,H,W = x_shape
+    stride = kernel//2
+    divisor = F.fold(F.unfold(torch.ones(B,C,H+stride-1,W+stride-1).to(x.device), 
+                kernel_size=(kernel,kernel), stride=stride), 
+                output_size=(H+stride-1,W+stride-1), kernel_size=kernel, 
+                stride=stride)[:,:,:H,:W]
+    x = x.reshape(-1, kernel, kernel, C).permute(0,3,1,2)
+    x = F.fold(x.reshape(B, -1, C*kernel*kernel).transpose(1,2), output_size=(H+stride-1,W+stride-1), 
+               kernel_size=kernel,stride=stride)[:,:,:H,:W] / divisor
+    return x
+
+
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
@@ -88,7 +110,7 @@ class Mlp(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1, sliding=False, kernel=128):
         super().__init__()
         assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
 
@@ -96,6 +118,8 @@ class Attention(nn.Module):
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
+        self.sliding = sliding
+        self.kernel = kernel
 
         self.q = nn.Linear(dim, dim, bias=qkv_bias)
         self.kv = nn.Linear(dim, dim * 2, bias=qkv_bias)
@@ -138,6 +162,13 @@ class Attention(nn.Module):
             kv = self.kv(x).reshape(B, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         k, v = kv[0], kv[1]
 
+        if self.sliding:
+            kernel = self.kernel
+            kernel_sr, H_sr, W_sr = kernel // self.sr_ratio, H // self.sr_ratio, W // self.sr_ratio
+            q = unfold_sliding_window(q, kernel, (B,C,H,W))
+            k = unfold_sliding_window(k, kernel_sr, (B,C,H_sr,W_sr))
+            v = unfold_sliding_window(x, kernel_sr, (B,C,H_sr,W_sr))
+
         if (pos_emb is not None):
             # Only apply position embedding to q and k
             # q = q + pos_emb
@@ -150,6 +181,8 @@ class Attention(nn.Module):
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        if self.sliding:
+            x = fold_sliding_window(x, kernel, (B,C,H,W))
         x = self.proj(x)
         x = self.proj_drop(x)
 
@@ -159,13 +192,13 @@ class Attention(nn.Module):
 class Block(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, sr_ratio=1):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, sr_ratio=1, sliding=False, kernel=128):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
             dim,
             num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
-            attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio)
+            attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio, sliding=sliding, kernel=kernel)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -243,7 +276,7 @@ class MixVisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
                  num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
                  attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm,
-                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], use_pos_emb=False):
+                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], use_pos_emb=False, sliding=False):
         super().__init__()
         self.num_classes = num_classes
         self.depths = depths
@@ -274,6 +307,12 @@ class MixVisionTransformer(nn.Module):
             self.emb_1 = img_size_to_emb(64, 64, emb_ch_1, inv_freq_1)
             self.emb_2 = img_size_to_emb(32, 32, emb_ch_2, inv_freq_2)
             self.emb_3 = img_size_to_emb(16, 16, emb_ch_3, inv_freq_3)
+        self.sliding = sliding
+        if self.sliding:
+            self.kernel_0 = 128
+            self.kernel_1 = 64
+            self.kernel_2 = 32
+            self.kernel_3 = 16
 
         # transformer encoder
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
@@ -281,7 +320,7 @@ class MixVisionTransformer(nn.Module):
         self.block1 = nn.ModuleList([Block(
             dim=embed_dims[0], num_heads=num_heads[0], mlp_ratio=mlp_ratios[0], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[0])
+            sr_ratio=sr_ratios[0], sliding=sliding, kernel=self.kernel_0)
             for i in range(depths[0])])
         self.norm1 = norm_layer(embed_dims[0])
 
@@ -289,7 +328,7 @@ class MixVisionTransformer(nn.Module):
         self.block2 = nn.ModuleList([Block(
             dim=embed_dims[1], num_heads=num_heads[1], mlp_ratio=mlp_ratios[1], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[1])
+            sr_ratio=sr_ratios[1], sliding=sliding, kernel=self.kernel_1)
             for i in range(depths[1])])
         self.norm2 = norm_layer(embed_dims[1])
 
@@ -297,7 +336,7 @@ class MixVisionTransformer(nn.Module):
         self.block3 = nn.ModuleList([Block(
             dim=embed_dims[2], num_heads=num_heads[2], mlp_ratio=mlp_ratios[2], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[2])
+            sr_ratio=sr_ratios[2], sliding=sliding, kernel=self.kernel_2)
             for i in range(depths[2])])
         self.norm3 = norm_layer(embed_dims[2])
 
@@ -305,7 +344,7 @@ class MixVisionTransformer(nn.Module):
         self.block4 = nn.ModuleList([Block(
             dim=embed_dims[3], num_heads=num_heads[3], mlp_ratio=mlp_ratios[3], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[3])
+            sr_ratio=sr_ratios[3], sliding=sliding, kernel=self.kernel_3)
             for i in range(depths[3])])
         self.norm4 = norm_layer(embed_dims[3])
 
@@ -373,20 +412,41 @@ class MixVisionTransformer(nn.Module):
         # stage 1
         x, H, W = self.patch_embed1(x)
         if(self.use_pos_emb):
-            self.emb_0 = self.emb_0.to(x.device)
-            emb = F.interpolate(self.emb_0.reshape(1,128,128,-1).permute(0,3,1,2), 
-                                   size=(H,W), mode='bilinear')
-            emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-            emb_sr = F.interpolate(self.emb_0.reshape(1,128,128,-1).permute(0,3,1,2), 
-                                   size=(H//self.sr_ratios[0],W//self.sr_ratios[0]), 
-                                   mode='bilinear')
-            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
+            if(self.sliding):
+                emb = self.emb_0.to(x.device)
+                # x = x.transpose(1,2).reshape(B,-1,H,W)
+                # C = x.shape[1]
+                kernel = 128
+                # stride = kernel//2
+                emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
+                emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
+                                    size=(kernel//self.sr_ratios[0],kernel//self.sr_ratios[0]), 
+                                    mode='bilinear')
+                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
+                # x = F.pad(x, (0,stride-1,0,stride-1))
+                # x = F.unfold(x, kernel_size=(kernel,kernel), stride=stride)
+                # x = x.reshape(B,C,kernel,kernel,-1).permute(0,4,2,3,1).reshape(-1,kernel*kernel,C)
+            else:
+                self.emb_0 = self.emb_0.to(x.device)
+                emb = F.interpolate(self.emb_0.reshape(1,128,128,-1).permute(0,3,1,2), 
+                                    size=(H,W), mode='bilinear')
+                emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
+                emb_sr = F.interpolate(self.emb_0.reshape(1,128,128,-1).permute(0,3,1,2), 
+                                    size=(H//self.sr_ratios[0],W//self.sr_ratios[0]), 
+                                    mode='bilinear')
+                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
             emb = None
             emb_sr = None
         for i, blk in enumerate(self.block1):
             x = blk(x, H, W, emb, emb_sr)
         x = self.norm1(x)
+        # if self.use_pos_emb and self.sliding:
+        #     C = x.shape[-1]
+        #     x = x.reshape(-1, kernel, kernel, C).permute(0,3,1,2)
+        #     x = F.fold(x.reshape(B, -1, C*kernel*kernel).transpose(1,2), output_size=(H+stride-1,W+stride-1), kernel_size=kernel, stride=stride)[:,:,:H,:W]
+        #     divisor = F.fold(F.unfold(torch.ones(B,C,H+stride-1,W+stride-1).to(x.device), kernel_size=(kernel,kernel), stride=stride), output_size=(H+stride-1,W+stride-1), kernel_size=kernel, stride=stride)[:,:,:H,:W]
+        #     x = x / divisor
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
@@ -473,10 +533,10 @@ class DWConv(nn.Module):
         return x
 
         
-def mit_b0(pretrained=False, use_pos_emb=False):
+def mit_b0(pretrained=False, use_pos_emb=False, sliding=False):
     model = MixVisionTransformer(patch_size=4, embed_dims=[32, 64, 160, 256], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 2, 2], sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0, drop_path_rate=0.1, use_pos_emb=use_pos_emb)
+            drop_rate=0.0, drop_path_rate=0.1, use_pos_emb=use_pos_emb, sliding=sliding)
     if pretrained:
         model.load_state_dict(torch.load(model_paths['mit_b0']), strict=False)
     return model
