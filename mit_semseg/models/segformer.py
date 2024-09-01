@@ -53,21 +53,20 @@ def unfold_sliding_window(x, kernel, x_shape):
     B,C,H,W = x_shape
     stride = kernel//2
     x = x.transpose(1,2).reshape(B,C,H,W)
-    x = F.pad(x, (0,stride-1,0,stride-1))
-    x = F.unfold(x, kernel_size=(kernel,kernel), stride=stride)
+    x = F.unfold(x, kernel_size=(kernel,kernel), stride=stride, padding=stride)
     x = x.reshape(B,C,kernel,kernel,-1).permute(0,4,2,3,1).reshape(-1,kernel*kernel,C)
     return x
 
 def fold_sliding_window(x, kernel, x_shape):
     B,C,H,W = x_shape
     stride = kernel//2
-    divisor = F.fold(F.unfold(torch.ones(B,C,H+stride-1,W+stride-1).to(x.device), 
-                kernel_size=(kernel,kernel), stride=stride), 
+    divisor = F.fold(F.unfold(torch.ones(B,C,H,W).to(x.device), 
+                kernel_size=(kernel,kernel), stride=stride, padding=stride), 
                 output_size=(H+stride-1,W+stride-1), kernel_size=kernel, 
-                stride=stride)[:,:,:H,:W]
+                stride=stride, padding=stride)
     x = x.reshape(-1, kernel, kernel, C).permute(0,3,1,2)
-    x = F.fold(x.reshape(B, -1, C*kernel*kernel).transpose(1,2), output_size=(H+stride-1,W+stride-1), 
-               kernel_size=kernel,stride=stride)[:,:,:H,:W] / divisor
+    x = F.fold(x.reshape(B, -1, C*kernel*kernel).transpose(1,2), output_size=(H,W), 
+               kernel_size=kernel,stride=stride,padding=stride) / divisor
     return x
 
 
