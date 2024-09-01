@@ -49,12 +49,12 @@ def apply_rotatory_emb(x, pos_emb):
     x_out = torch.cat((pos_emb[:,:,:,1::2]*x[:,:,:,1::2] - pos_emb[:,:,:,::2]*x[:,:,:,::2], pos_emb[:,:,:,1::2]*x[:,:,:,1::2] + pos_emb[:,:,:,::2]*x[:,:,:,::2]), dim=-1)
     return x_out
 
-def unfold_sliding_window(x, kernel, x_shape):
+def unfold_sliding_window(x, kernel, x_shape, num_heads):
     B,C,H,W = x_shape
     stride = kernel//2
-    x = x.transpose(1,2).reshape(B,C,H,W)
+    x = x.transpose(2,3).reshape(B,C,H,W)
     x = F.unfold(x, kernel_size=(kernel,kernel), stride=stride, padding=stride)
-    x = x.reshape(B,C,kernel,kernel,-1).permute(0,4,2,3,1).reshape(-1,kernel*kernel,C)
+    x = x.reshape(B,num_heads, C // num_heads,kernel*kernel,-1).permute(0,4,3,2,1)
     return x
 
 def fold_sliding_window(x, kernel, x_shape):
@@ -164,9 +164,9 @@ class Attention(nn.Module):
         if self.sliding:
             kernel = self.kernel
             kernel_sr, H_sr, W_sr = kernel // self.sr_ratio, H // self.sr_ratio, W // self.sr_ratio
-            q = unfold_sliding_window(q, kernel, (B,C,H,W))
-            k = unfold_sliding_window(k, kernel_sr, (B,C,H_sr,W_sr))
-            v = unfold_sliding_window(v, kernel_sr, (B,C,H_sr,W_sr))
+            q = unfold_sliding_window(q, kernel, (B,C,H,W), self.num_heads)
+            k = unfold_sliding_window(k, kernel_sr, (B,C,H_sr,W_sr), self.num_heads)
+            v = unfold_sliding_window(v, kernel_sr, (B,C,H_sr,W_sr), self.num_heads)
 
         if (pos_emb is not None):
             # Only apply position embedding to q and k
