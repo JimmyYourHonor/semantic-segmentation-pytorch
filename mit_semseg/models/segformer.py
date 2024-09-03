@@ -54,7 +54,8 @@ def unfold_sliding_window(x, kernel, x_shape, num_heads):
     stride = kernel//2
     x = x.transpose(2,3).reshape(B,C,H,W)
     x = F.unfold(x, kernel_size=(kernel,kernel), stride=stride, padding=stride)
-    x = x.reshape(B,num_heads, C // num_heads,kernel*kernel,-1).permute(0,4,3,2,1)
+    x = x.reshape(B,num_heads, C//num_heads, kernel*kernel,-1)\
+    .permute(0,4,1,3,2).reshape(-1,num_heads,kernel*kernel,C // num_heads)
     return x
 
 def fold_sliding_window(x, kernel, x_shape):
@@ -62,10 +63,10 @@ def fold_sliding_window(x, kernel, x_shape):
     stride = kernel//2
     divisor = F.fold(F.unfold(torch.ones(B,C,H,W).to(x.device), 
                 kernel_size=(kernel,kernel), stride=stride, padding=stride), 
-                output_size=(H+stride-1,W+stride-1), kernel_size=kernel, 
+                output_size=(H,W), kernel_size=kernel, 
                 stride=stride, padding=stride)
-    x = x.reshape(-1, kernel, kernel, C).permute(0,3,1,2)
-    x = F.fold(x.reshape(B, -1, C*kernel*kernel).transpose(1,2), output_size=(H,W), 
+    x = x.reshape(B, -1, kernel*kernel, C).permute(0,3,2,1)
+    x = F.fold(x.reshape(B, C*kernel*kernel, -1), output_size=(H,W), 
                kernel_size=kernel,stride=stride,padding=stride) / divisor
     return x
 
@@ -178,10 +179,13 @@ class Attention(nn.Module):
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = (attn @ v).transpose(1, 2)
         if self.sliding:
-            x = fold_sliding_window(x, kernel, (B,C,H,W))
+            x = x.reshape(-1, self.kernel*self.kernel, C)
+            x = fold_sliding_window(x, kernel, (B,C,H,W)).reshape(B,C,N)\
+            .transpose(1,2)
+        else:
+            x = x.reshape(B,N,C)
         x = self.proj(x)
         x = self.proj_drop(x)
 
@@ -413,18 +417,11 @@ class MixVisionTransformer(nn.Module):
         if(self.use_pos_emb):
             if(self.sliding):
                 emb = self.emb_0.to(x.device)
-                # x = x.transpose(1,2).reshape(B,-1,H,W)
-                # C = x.shape[1]
                 kernel = 128
-                # stride = kernel//2
-                emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
                 emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
                                     size=(kernel//self.sr_ratios[0],kernel//self.sr_ratios[0]), 
                                     mode='bilinear')
                 emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
-                # x = F.pad(x, (0,stride-1,0,stride-1))
-                # x = F.unfold(x, kernel_size=(kernel,kernel), stride=stride)
-                # x = x.reshape(B,C,kernel,kernel,-1).permute(0,4,2,3,1).reshape(-1,kernel*kernel,C)
             else:
                 self.emb_0 = self.emb_0.to(x.device)
                 emb = F.interpolate(self.emb_0.reshape(1,128,128,-1).permute(0,3,1,2), 
@@ -440,26 +437,28 @@ class MixVisionTransformer(nn.Module):
         for i, blk in enumerate(self.block1):
             x = blk(x, H, W, emb, emb_sr)
         x = self.norm1(x)
-        # if self.use_pos_emb and self.sliding:
-        #     C = x.shape[-1]
-        #     x = x.reshape(-1, kernel, kernel, C).permute(0,3,1,2)
-        #     x = F.fold(x.reshape(B, -1, C*kernel*kernel).transpose(1,2), output_size=(H+stride-1,W+stride-1), kernel_size=kernel, stride=stride)[:,:,:H,:W]
-        #     divisor = F.fold(F.unfold(torch.ones(B,C,H+stride-1,W+stride-1).to(x.device), kernel_size=(kernel,kernel), stride=stride), output_size=(H+stride-1,W+stride-1), kernel_size=kernel, stride=stride)[:,:,:H,:W]
-        #     x = x / divisor
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         # stage 2
         x, H, W = self.patch_embed2(x)
         if(self.use_pos_emb):
-            self.emb_1 = self.emb_1.to(x.device)
-            emb = F.interpolate(self.emb_1.reshape(1,64,64,-1).permute(0,3,1,2), 
-                                   size=(H,W), mode='bilinear')
-            emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-            emb_sr = F.interpolate(self.emb_1.reshape(1,64,64,-1).permute(0,3,1,2), 
-                                   size=(H//self.sr_ratios[1],W//self.sr_ratios[1]), 
-                                   mode='bilinear')
-            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
+            if(self.sliding):
+                emb = self.emb_1.to(x.device)
+                kernel = 64
+                emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
+                                    size=(kernel//self.sr_ratios[1],kernel//self.sr_ratios[1]), 
+                                    mode='bilinear')
+                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
+            else:
+                self.emb_1 = self.emb_1.to(x.device)
+                emb = F.interpolate(self.emb_1.reshape(1,64,64,-1).permute(0,3,1,2), 
+                                      size=(H,W), mode='bilinear')
+                emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
+                emb_sr = F.interpolate(self.emb_1.reshape(1,64,64,-1).permute(0,3,1,2), 
+                                      size=(H//self.sr_ratios[1],W//self.sr_ratios[1]), 
+                                      mode='bilinear')
+                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
             emb = None
             emb_sr = None
@@ -472,14 +471,22 @@ class MixVisionTransformer(nn.Module):
         # stage 3
         x, H, W = self.patch_embed3(x)
         if(self.use_pos_emb):
-            self.emb_2 = self.emb_2.to(x.device)
-            emb = F.interpolate(self.emb_2.reshape(1,32,32,-1).permute(0,3,1,2), 
-                                   size=(H,W), mode='bilinear')
-            emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-            emb_sr = F.interpolate(self.emb_2.reshape(1,32,32,-1).permute(0,3,1,2), 
-                                   size=(H//self.sr_ratios[2],W//self.sr_ratios[2]), 
-                                   mode='bilinear')
-            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
+            if(self.sliding):
+                emb = self.emb_2.to(x.device)
+                kernel = 32
+                emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
+                                    size=(kernel//self.sr_ratios[2],kernel//self.sr_ratios[2]), 
+                                    mode='bilinear')
+                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
+            else:
+                self.emb_2 = self.emb_2.to(x.device)
+                emb = F.interpolate(self.emb_2.reshape(1,32,32,-1).permute(0,3,1,2), 
+                                      size=(H,W), mode='bilinear')
+                emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
+                emb_sr = F.interpolate(self.emb_2.reshape(1,32,32,-1).permute(0,3,1,2), 
+                                      size=(H//self.sr_ratios[2],W//self.sr_ratios[2]), 
+                                      mode='bilinear')
+                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
             emb = None
             emb_sr = None
@@ -492,14 +499,22 @@ class MixVisionTransformer(nn.Module):
         # stage 4
         x, H, W = self.patch_embed4(x)
         if(self.use_pos_emb):
-            self.emb_3 = self.emb_3.to(x.device)
-            emb = F.interpolate(self.emb_3.reshape(1,16,16,-1).permute(0,3,1,2), 
-                                   size=(H,W), mode='bilinear')
-            emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-            emb_sr = F.interpolate(self.emb_3.reshape(1,16,16,-1).permute(0,3,1,2), 
-                                   size=(H//self.sr_ratios[3],W//self.sr_ratios[3]), 
-                                   mode='bilinear')
-            emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
+            if(self.sliding):
+                emb = self.emb_3.to(x.device)
+                kernel = 16
+                emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
+                                    size=(kernel//self.sr_ratios[3],kernel//self.sr_ratios[3]), 
+                                    mode='bilinear')
+                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
+            else:
+                self.emb_3 = self.emb_3.to(x.device)
+                emb = F.interpolate(self.emb_3.reshape(1,16,16,-1).permute(0,3,1,2), 
+                                      size=(H,W), mode='bilinear')
+                emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
+                emb_sr = F.interpolate(self.emb_3.reshape(1,16,16,-1).permute(0,3,1,2), 
+                                      size=(H//self.sr_ratios[3],W//self.sr_ratios[3]), 
+                                      mode='bilinear')
+                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
         else:
             emb = None
             emb = None
