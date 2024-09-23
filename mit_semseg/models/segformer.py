@@ -46,7 +46,10 @@ def img_size_to_emb(height, width, channel, freq):
     return emb
 
 def apply_rotatory_emb(x, pos_emb):
-    x_out = torch.cat((pos_emb[:,:,:,1::2]*x[:,:,:,1::2] - pos_emb[:,:,:,::2]*x[:,:,:,::2], pos_emb[:,:,:,1::2]*x[:,:,:,1::2] + pos_emb[:,:,:,::2]*x[:,:,:,::2]), dim=-1)
+    x_out = torch.cat((pos_emb[:,:,:,1::2]*x[:,:,:,1::2] - \
+                       pos_emb[:,:,:,::2]*x[:,:,:,::2], 
+                       pos_emb[:,:,:,1::2]*x[:,:,:,1::2] + \
+                       pos_emb[:,:,:,::2]*x[:,:,:,::2]), dim=-1)
     return x_out
 
 def unfold_sliding_window(x, kernel, x_shape, num_heads):
@@ -61,13 +64,13 @@ def unfold_sliding_window(x, kernel, x_shape, num_heads):
 def fold_sliding_window(x, kernel, x_shape):
     B,C,H,W = x_shape
     stride = kernel//2
-    divisor = F.fold(F.unfold(torch.ones(B,C,H,W).to(x.device), 
-                kernel_size=(kernel,kernel), stride=stride, padding=stride), 
-                output_size=(H,W), kernel_size=kernel, 
-                stride=stride, padding=stride)
+    # divisor = F.fold(F.unfold(torch.ones(B,C,H,W).to(x.device), 
+    #             kernel_size=(kernel,kernel), stride=stride, padding=stride), 
+    #             output_size=(H,W), kernel_size=kernel, 
+    #             stride=stride, padding=stride)
     x = x.reshape(B, -1, kernel*kernel, C).permute(0,3,2,1)
     x = F.fold(x.reshape(B, C*kernel*kernel, -1), output_size=(H,W), 
-               kernel_size=kernel,stride=stride,padding=stride) / divisor
+               kernel_size=kernel,stride=stride,padding=stride) #/ divisor
     return x
 
 
@@ -297,7 +300,8 @@ class MixVisionTransformer(nn.Module):
 
         # Positional embedding
         self.use_pos_emb = use_pos_emb
-        if (self.use_pos_emb):
+        self.sliding = sliding
+        if self.use_pos_emb:
             emb_ch_0 = math.ceil((embed_dims[0]/num_heads[0])/4) * 2
             emb_ch_1 = math.ceil((embed_dims[1]/num_heads[1])/4) * 2
             emb_ch_2 = math.ceil((embed_dims[2]/num_heads[2])/4) * 2
@@ -306,16 +310,28 @@ class MixVisionTransformer(nn.Module):
             inv_freq_1 = 1.0 / (10000 ** (torch.arange(0, emb_ch_1, 2).float() / emb_ch_1))
             inv_freq_2 = 1.0 / (10000 ** (torch.arange(0, emb_ch_2, 2).float() / emb_ch_2))
             inv_freq_3 = 1.0 / (10000 ** (torch.arange(0, emb_ch_3, 2).float() / emb_ch_3))
-            self.emb_0 = img_size_to_emb(128, 128, emb_ch_0, inv_freq_0)
-            self.emb_1 = img_size_to_emb(64, 64, emb_ch_1, inv_freq_1)
-            self.emb_2 = img_size_to_emb(32, 32, emb_ch_2, inv_freq_2)
-            self.emb_3 = img_size_to_emb(16, 16, emb_ch_3, inv_freq_3)
-        self.sliding = sliding
+            if self.sliding:
+                self.emb_0 = img_size_to_emb(64, 64, emb_ch_0, inv_freq_0)
+                self.emb_1 = img_size_to_emb(32, 32, emb_ch_1, inv_freq_1)
+                self.emb_2 = img_size_to_emb(16, 16, emb_ch_2, inv_freq_2)
+                self.emb_3 = img_size_to_emb(8, 8, emb_ch_3, inv_freq_3)
+            else:
+                self.emb_0 = img_size_to_emb(128, 128, emb_ch_0, inv_freq_0)
+                self.emb_1 = img_size_to_emb(64, 64, emb_ch_1, inv_freq_1)
+                self.emb_2 = img_size_to_emb(32, 32, emb_ch_2, inv_freq_2)
+                self.emb_3 = img_size_to_emb(16, 16, emb_ch_3, inv_freq_3)
+
+        
         if self.sliding:
-            self.kernel_0 = 128
-            self.kernel_1 = 64
-            self.kernel_2 = 32
-            self.kernel_3 = 16
+            self.kernel_0 = 64
+            self.kernel_1 = 32
+            self.kernel_2 = 16
+            self.kernel_3 = 8
+        else:
+            self.kernel_0 = None
+            self.kernel_1 = None
+            self.kernel_2 = None
+            self.kernel_3 = None
 
         # transformer encoder
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
