@@ -60,7 +60,7 @@ def evaluate(segmentation_module, loader, cfg, gpu):
         with torch.no_grad():
             segSize = (seg_label.shape[0], seg_label.shape[1])
             scores = torch.zeros(1, cfg.DATASET.num_class, segSize[0], segSize[1])
-            # scores = async_copy_to(scores, gpu)
+            scores = async_copy_to(scores, gpu)
 
             for i, img in enumerate(img_resized_list):
                 feed_dict = batch_data.copy()
