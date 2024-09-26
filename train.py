@@ -294,7 +294,8 @@ def main(cfg):
         fc_dim=cfg.MODEL.fc_dim,
         weights=cfg.MODEL.weights_encoder,
         use_pos_emb=cfg.MODEL.use_pos_emb,
-        sliding=cfg.MODEL.sliding)
+        sliding=cfg.MODEL.sliding,
+        kernels=cfg.MODEL.kernels)
     net_decoder = ModelBuilder.build_decoder(
         arch=cfg.MODEL.arch_decoder.lower(),
         fc_dim=cfg.MODEL.fc_dim,

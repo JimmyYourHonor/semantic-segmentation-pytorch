@@ -23,7 +23,7 @@ MODEL:
   embedding_dim: 256
   use_pos_emb: True
   sliding: True
-  kernels: [128, 64, 32, 16]
+  kernels: [32, 16, 8, 4]
 
 TRAIN:
   batch_size_per_gpu: 16
@@ -43,4 +43,4 @@ TRAIN:
   disp_iter: 20
   seed: 934502
 
-DIR: "/content/drive/MyDrive/ckpt_slide_L"
+DIR: "/content/drive/MyDrive/ckpt_slide_S"

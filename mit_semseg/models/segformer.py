@@ -282,7 +282,7 @@ class MixVisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
                  num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
                  attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm,
-                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], use_pos_emb=False, sliding=False):
+                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], use_pos_emb=False, sliding=False, kernels=[64, 32, 16, 8]):
         super().__init__()
         self.num_classes = num_classes
         self.depths = depths
@@ -323,10 +323,10 @@ class MixVisionTransformer(nn.Module):
 
         
         if self.sliding:
-            self.kernel_0 = 64
-            self.kernel_1 = 32
-            self.kernel_2 = 16
-            self.kernel_3 = 8
+            self.kernel_0 = kernels[0]
+            self.kernel_1 = kernels[1]
+            self.kernel_2 = kernels[2]
+            self.kernel_3 = kernels[3]
         else:
             self.kernel_0 = None
             self.kernel_1 = None
@@ -566,7 +566,7 @@ class DWConv(nn.Module):
 def mit_b0(pretrained=False, use_pos_emb=False, sliding=False):
     model = MixVisionTransformer(patch_size=4, embed_dims=[32, 64, 160, 256], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 2, 2], sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0, drop_path_rate=0.1, use_pos_emb=use_pos_emb, sliding=sliding)
+            drop_rate=0.0, drop_path_rate=0.1, use_pos_emb=use_pos_emb, sliding=sliding, kernels=[64, 32, 16, 8])
     if pretrained:
         model.load_state_dict(torch.load(model_paths['mit_b0']), strict=False)
     return model
