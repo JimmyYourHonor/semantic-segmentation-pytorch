@@ -49,7 +49,7 @@ _C.MODEL.embedding_dim = None
 _C.MODEL.pretrained_segformer = None
 _C.MODEL.use_pos_emb = False
 _C.MODEL.sliding = False
-_c.MODEL.kernels = []
+_C.MODEL.kernels = []
 _C.MODEL.checkpoint = None
 
 # -----------------------------------------------------------------------------
