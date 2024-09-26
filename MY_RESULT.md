@@ -15,14 +15,14 @@ Third, I tried to use another method. I implemented a sliding window attention m
     <th valign="bottom">Pixel Accuracy(%)</th>
     <tr>
         <td rowspan="2">Segformer B0</td>
-        <td>No</td><td>37.4</td><td>77.6</td>
+        <td>No</td><td>37.38</td><td>77.76</td>
     </tr>
     <tr>
         <td>Yes</td><td>38.44</td><td>78.74</td>
     </tr>
     <tr>
         <td rowspan="2">Segformer B0 w/ pos</td>
-        <td>No</td><td>38</td><td>78</td>
+        <td>No</td><td>37.68</td><td>77.87</td>
     </tr>
     <tr>
         <td>Yes</td><td>38.30</td><td>78.65</td>

@@ -311,10 +311,10 @@ class MixVisionTransformer(nn.Module):
             inv_freq_2 = 1.0 / (10000 ** (torch.arange(0, emb_ch_2, 2).float() / emb_ch_2))
             inv_freq_3 = 1.0 / (10000 ** (torch.arange(0, emb_ch_3, 2).float() / emb_ch_3))
             if self.sliding:
-                self.emb_0 = img_size_to_emb(64, 64, emb_ch_0, inv_freq_0)
-                self.emb_1 = img_size_to_emb(32, 32, emb_ch_1, inv_freq_1)
-                self.emb_2 = img_size_to_emb(16, 16, emb_ch_2, inv_freq_2)
-                self.emb_3 = img_size_to_emb(8, 8, emb_ch_3, inv_freq_3)
+                self.emb_0 = img_size_to_emb(self.kernel_0, self.kernel_0, emb_ch_0, inv_freq_0)
+                self.emb_1 = img_size_to_emb(self.kernel_1, self.kernel_1, emb_ch_1, inv_freq_1)
+                self.emb_2 = img_size_to_emb(self.kernel_2, self.kernel_2, emb_ch_2, inv_freq_2)
+                self.emb_3 = img_size_to_emb(self.kernel_3, self.kernel_3, emb_ch_3, inv_freq_3)
             else:
                 self.emb_0 = img_size_to_emb(128, 128, emb_ch_0, inv_freq_0)
                 self.emb_1 = img_size_to_emb(64, 64, emb_ch_1, inv_freq_1)
@@ -433,7 +433,7 @@ class MixVisionTransformer(nn.Module):
         if(self.use_pos_emb):
             if(self.sliding):
                 emb = self.emb_0.to(x.device)
-                kernel = 128
+                kernel = self.kernel_0
                 emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
                                     size=(kernel//self.sr_ratios[0],kernel//self.sr_ratios[0]), 
                                     mode='bilinear')
@@ -461,7 +461,7 @@ class MixVisionTransformer(nn.Module):
         if(self.use_pos_emb):
             if(self.sliding):
                 emb = self.emb_1.to(x.device)
-                kernel = 64
+                kernel = self.kernel_1
                 emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
                                     size=(kernel//self.sr_ratios[1],kernel//self.sr_ratios[1]), 
                                     mode='bilinear')
@@ -489,7 +489,7 @@ class MixVisionTransformer(nn.Module):
         if(self.use_pos_emb):
             if(self.sliding):
                 emb = self.emb_2.to(x.device)
-                kernel = 32
+                kernel = self.kernel_2
                 emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
                                     size=(kernel//self.sr_ratios[2],kernel//self.sr_ratios[2]), 
                                     mode='bilinear')
@@ -517,7 +517,7 @@ class MixVisionTransformer(nn.Module):
         if(self.use_pos_emb):
             if(self.sliding):
                 emb = self.emb_3.to(x.device)
-                kernel = 16
+                kernel = self.kernel_3
                 emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
                                     size=(kernel//self.sr_ratios[3],kernel//self.sr_ratios[3]), 
                                     mode='bilinear')
