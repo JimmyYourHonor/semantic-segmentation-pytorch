@@ -311,10 +311,10 @@ class MixVisionTransformer(nn.Module):
             inv_freq_2 = 1.0 / (10000 ** (torch.arange(0, emb_ch_2, 2).float() / emb_ch_2))
             inv_freq_3 = 1.0 / (10000 ** (torch.arange(0, emb_ch_3, 2).float() / emb_ch_3))
             if self.sliding:
-                self.emb_0 = img_size_to_emb(self.kernel_0, self.kernel_0, emb_ch_0, inv_freq_0)
-                self.emb_1 = img_size_to_emb(self.kernel_1, self.kernel_1, emb_ch_1, inv_freq_1)
-                self.emb_2 = img_size_to_emb(self.kernel_2, self.kernel_2, emb_ch_2, inv_freq_2)
-                self.emb_3 = img_size_to_emb(self.kernel_3, self.kernel_3, emb_ch_3, inv_freq_3)
+                self.emb_0 = img_size_to_emb(kernels[0], kernels[0], emb_ch_0, inv_freq_0)
+                self.emb_1 = img_size_to_emb(kernels[1], kernels[1], emb_ch_1, inv_freq_1)
+                self.emb_2 = img_size_to_emb(kernels[2], kernels[2], emb_ch_2, inv_freq_2)
+                self.emb_3 = img_size_to_emb(kernels[3], kernels[3], emb_ch_3, inv_freq_3)
             else:
                 self.emb_0 = img_size_to_emb(128, 128, emb_ch_0, inv_freq_0)
                 self.emb_1 = img_size_to_emb(64, 64, emb_ch_1, inv_freq_1)
