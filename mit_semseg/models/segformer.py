@@ -64,13 +64,13 @@ def unfold_sliding_window(x, kernel, x_shape, num_heads):
 def fold_sliding_window(x, kernel, x_shape):
     B,C,H,W = x_shape
     stride = kernel//2
-    # divisor = F.fold(F.unfold(torch.ones(B,C,H,W).to(x.device), 
-    #             kernel_size=(kernel,kernel), stride=stride, padding=stride), 
-    #             output_size=(H,W), kernel_size=kernel, 
-    #             stride=stride, padding=stride)
+    divisor = F.fold(F.unfold(torch.ones(B,C,H,W).to(x.device),
+                kernel_size=(kernel,kernel), stride=stride, padding=stride),
+                output_size=(H,W), kernel_size=kernel,
+                stride=stride, padding=stride)
     x = x.reshape(B, -1, kernel*kernel, C).permute(0,3,2,1)
     x = F.fold(x.reshape(B, C*kernel*kernel, -1), output_size=(H,W), 
-               kernel_size=kernel,stride=stride,padding=stride) #/ divisor
+               kernel_size=kernel,stride=stride,padding=stride) / divisor
     return x
 
 
