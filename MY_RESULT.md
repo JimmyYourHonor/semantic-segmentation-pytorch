@@ -35,3 +35,36 @@ Third, I tried to use another method. I implemented a sliding window attention m
         <td>Yes</td><td>38.96</td><td>79.06</td>
     </tr>
 </tbody></table>
+
+
+Comparison between different window size and stride size
+
+<table><tbody>
+    <th valign="bottom">Architecture</th>
+    <th valign="bottom">MultiScale Testing</th>
+    <th valign="bottom">Mean IoU</th>
+    <th valign="bottom">Pixel Accuracy(%)</th>
+    <tr>
+        <td rowspan="2">Small</td>
+        <td>No</td><td>34.82</td><td>76.6</td>
+    </tr>
+    <tr>
+        <td>Yes</td><td>36.25</td><td>77.95</td>
+    </tr>
+    <tr>
+        <td rowspan="2">Median</td>
+        <td>No</td><td>36.08</td><td>77.17</td>
+    </tr>
+    <tr>
+        <td>Yes</td><td>38.02</td><td>78.63</td>
+    </tr>
+    <tr>
+        <td rowspan="2">Large</td>
+        <td>No</td><td>37.6</td><td>77.5</td>
+    </tr>
+    <tr>
+        <td>Yes</td><td>38.96</td><td>79.06</td>
+    </tr>
+</tbody></table>
+
+From the test results of various scales of sliding windows, we can see a clear trend that the accuracy/miou difference between none multiscale and multiscale is larger. Sliding window attention is prone to scale change.

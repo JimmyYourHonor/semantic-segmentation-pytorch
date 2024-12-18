@@ -18,6 +18,7 @@ from mit_semseg.models import ModelBuilder, SegmentationModule
 from mit_semseg.utils import AverageMeter, parse_devices, setup_logger, accuracy, intersectionAndUnion, colorEncode
 from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback, train_collate, async_copy_to
 from mit_semseg.lib.utils import as_numpy
+from mit_semseg.logging import *
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -102,11 +103,15 @@ def evaluate(segmentation_module, loader, cfg, epoch, gpu=0):
     
 
 # train one epoch
-def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoch, cfg):
+def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoch, cfg, log_list):
     batch_time = AverageMeter()
     data_time = AverageMeter()
 
     segmentation_module.train(not cfg.TRAIN.fix_bn)
+
+    # initialize loggers before epoch
+    for log in log_list:
+        log.on_train_epoch_start(segmentation_module)
 
     # main loop
     tic = time.time()
@@ -130,38 +135,46 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
         loss.backward()
 
         # Save gradients and weights before update to compute stats
-        params_before = {}
-        grads = {}
-        for name, m in segmentation_module.named_modules():
-            if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
-                meta_name = ".".join(name.split(".")[:3])
-                if meta_name not in params_before:
-                    params_before[meta_name] = []
-                if meta_name not in grads:
-                    grads[meta_name] = []
-                params_before[meta_name].append(m.weight.detach().cpu())
-                grads[meta_name].append(m.weight.grad.detach().cpu())
+        # params_before = {}
+        # grads = {}
+        # for name, m in segmentation_module.named_modules():
+        #     if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
+        #         meta_name = ".".join(name.split(".")[:3])
+        #         if meta_name not in params_before:
+        #             params_before[meta_name] = []
+        #         if meta_name not in grads:
+        #             grads[meta_name] = []
+        #         params_before[meta_name].append(m.weight.detach().cpu())
+        #         grads[meta_name].append(m.weight.grad.detach().cpu())
+
+        # update logs before optim
+        for log in log_list:
+            log.before_optim(segmentation_module)
 
         for optimizer in optimizers:
             optimizer.step()
 
-        params_after = {}
-        for name, m in segmentation_module.named_modules():
-            if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
-                meta_name = ".".join(name.split(".")[:3])
-                if meta_name not in params_after:
-                    params_after[meta_name] = []
-                params_after[meta_name].append(m.weight.detach().cpu())
-        # Get weights after update to compute stats
-        update_ratios = {}
-        grads_ratios = {}
-        for name in params_before.keys():
-            param_before = torch.cat([param.flatten() for param in params_before[name]])
-            param_after = torch.cat([param.flatten() for param in params_after[name]])
-            grad = torch.cat([param.flatten() for param in grads[name]])
-            update = param_after - param_before
-            update_ratios[name] = (update.std() / param_after.std()).log10().data.item()
-            grads_ratios[name] = nn.functional.cosine_similarity(grad, update, dim=0).data.item()
+        # params_after = {}
+        # for name, m in segmentation_module.named_modules():
+        #     if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
+        #         meta_name = ".".join(name.split(".")[:3])
+        #         if meta_name not in params_after:
+        #             params_after[meta_name] = []
+        #         params_after[meta_name].append(m.weight.detach().cpu())
+        # # Get weights after update to compute stats
+        # update_ratios = {}
+        # grads_ratios = {}
+        # for name in params_before.keys():
+        #     param_before = torch.cat([param.flatten() for param in params_before[name]])
+        #     param_after = torch.cat([param.flatten() for param in params_after[name]])
+        #     grad = torch.cat([param.flatten() for param in grads[name]])
+        #     update = param_after - param_before
+        #     update_ratios[name] = (update.std() / param_after.std()).log10().data.item()
+        #     grads_ratios[name] = nn.functional.cosine_similarity(grad, update, dim=0).data.item()
+
+        # update log after optimization
+        for log in log_list:
+            log.after_optim(segmentation_module)
 
 
         # measure elapsed time
@@ -188,11 +201,14 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
         history['train']['loss'].append(loss.data.item())
         history['train']['acc'].append(acc.data.item())
         history['train']['miou'].append(miou.data.item())
-        history['train']['update_ratios'].append(update_ratios)
-        history['train']['grad_ratios'].append(grads_ratios)
+        # history['train']['update_ratios'].append(update_ratios)
+        # history['train']['grad_ratios'].append(grads_ratios)
+    # Finalize log after epoch ends
+    for log in log_list:
+        log.on_train_epoch_end(segmentation_module)
 
 
-def checkpoint(nets, history, cfg, epoch, encoder_opt=None, decoder_opt=None):
+def checkpoint(nets, history, cfg, epoch, encoder_opt=None, decoder_opt=None, log_list=[]):
     print('Saving checkpoints...')
     (net_encoder, net_decoder, crit) = nets
 
@@ -201,14 +217,20 @@ def checkpoint(nets, history, cfg, epoch, encoder_opt=None, decoder_opt=None):
     dict_enc_opt = encoder_opt.state_dict()
     dict_dec_opt = decoder_opt.state_dict()
 
-    torch.save({
-            'encoder': dict_encoder,
-            'decoder': dict_decoder,
-            'encoder_opt': dict_enc_opt,
-            'decoder_opt': dict_dec_opt,
-            'history': history,
-            'epoch': epoch,
-            }, '{}/{}'.format(cfg.DIR, cfg.MODEL.checkpoint))
+    ckpt_dict = {
+        'encoder': dict_encoder,
+        'decoder': dict_decoder,
+        'encoder_opt': dict_enc_opt,
+        'decoder_opt': dict_dec_opt,
+        'history': history,
+        'epoch': epoch,
+    }
+
+    for log in log_list:
+        log_dict = log.save_checkpoint()
+        ckpt_dict = {**ckpt_dict, **log_dict}
+
+    torch.save(ckpt_dict, '{}/{}'.format(cfg.DIR, cfg.MODEL.checkpoint))
 
 
 def group_weight(module):
@@ -287,7 +309,10 @@ def momentum_decay(optimizers, cur_iter, cfg):
     for param_group in optimizer_decoder.param_groups:
         param_group['momentum'] = cfg.TRAIN.running_beta1
 
-def main(cfg):
+def main(cfg, verbose):
+    log_list = []
+    if verbose > 0:
+        log_list.append(LogWeight())
     # Network Builders
     net_encoder = ModelBuilder.build_encoder(
         arch=cfg.MODEL.arch_encoder.lower(),
@@ -361,7 +386,7 @@ def main(cfg):
     optimizers = create_optimizers(nets, cfg)
 
     # Main loop
-    history = {'train': {'epoch': [], 'loss': [], 'acc': [], 'miou': [], 'update_ratios': [], 'grad_ratios': []}}
+    history = {'train': {'epoch': [], 'loss': [], 'acc': [], 'miou': []}}
 
     if cfg.MODEL.checkpoint:
         ckpt_file = os.path.join(cfg.DIR, cfg.MODEL.checkpoint)
@@ -373,13 +398,15 @@ def main(cfg):
             optimizers[1].load_state_dict(state_dict['decoder_opt'])
             history = state_dict['history']
             cfg.TRAIN.start_epoch = state_dict['epoch']
+            for log in log_list:
+                log.load_checkpoint(state_dict)
 
     ave_total_loss = AverageMeter()
     for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
-        train(segmentation_module, loader_train, optimizers, ave_total_loss, history, epoch+1, cfg)
+        train(segmentation_module, loader_train, optimizers, ave_total_loss, history, epoch+1, cfg, log_list)
 
         # checkpointing
-        checkpoint(nets, history, cfg, epoch+1, optimizers[0], optimizers[1])
+        checkpoint(nets, history, cfg, epoch+1, optimizers[0], optimizers[1], log_list)
 
         # plot training loss, acc, and miou
         plt.plot(history['train']['epoch'], history['train']['loss'])
@@ -391,28 +418,30 @@ def main(cfg):
         plt.plot(history['train']['epoch'], history['train']['miou'])
         plt.savefig(os.path.join(cfg.DIR ,'train_miou.png'), bbox_inches='tight')
         plt.clf()
-        colors = sns.color_palette('hls', len(history['train']['update_ratios'][0]))
-        plt.gca().set_prop_cycle('color', colors)
-        # Also plot update_ratios and grad_ratios
-        legends = []
-        for name in history['train']['update_ratios'][0].keys():
-            plt.plot([history['train']['update_ratios'][j][name] for j in range(len(history['train']['update_ratios']))])
-            legends.append(name)
-        plt.plot([0, len(history['train']['update_ratios'])], [-3, -3], 'k') # these ratios should be ~1e-3, indicate on plot
-        plt.legend(legends)
-        plt.savefig(os.path.join(cfg.DIR ,'update_ratios.png'), bbox_inches='tight')
-        plt.clf()
+        # colors = sns.color_palette('hls', len(history['train']['update_ratios'][0]))
+        # plt.gca().set_prop_cycle('color', colors)
+        # # Also plot update_ratios and grad_ratios
+        # legends = []
+        # for name in history['train']['update_ratios'][0].keys():
+        #     plt.plot([history['train']['update_ratios'][j][name] for j in range(len(history['train']['update_ratios']))])
+        #     legends.append(name)
+        # plt.plot([0, len(history['train']['update_ratios'])], [-3, -3], 'k') # these ratios should be ~1e-3, indicate on plot
+        # plt.legend(legends)
+        # plt.savefig(os.path.join(cfg.DIR ,'update_ratios.png'), bbox_inches='tight')
+        # plt.clf()
 
-        colors = sns.color_palette('hls', len(history['train']['update_ratios'][0]))
-        plt.gca().set_prop_cycle('color', colors)
-        legends = []
-        for name in history['train']['grad_ratios'][0].keys():
-            temp_list = [history['train']['grad_ratios'][j][name] for j in range(len(history['train']['grad_ratios']))]
-            plt.plot([sum(temp_list[i:i+10])/10 for i in range(10, len(temp_list))])
-            legends.append(name)
-        plt.legend(legends)
-        plt.savefig(os.path.join(cfg.DIR ,'grad_ratios.png'), bbox_inches='tight')
-        plt.clf()
+        # colors = sns.color_palette('hls', len(history['train']['update_ratios'][0]))
+        # plt.gca().set_prop_cycle('color', colors)
+        # legends = []
+        # for name in history['train']['grad_ratios'][0].keys():
+        #     temp_list = [history['train']['grad_ratios'][j][name] for j in range(len(history['train']['grad_ratios']))]
+        #     plt.plot([sum(temp_list[i:i+10])/10 for i in range(10, len(temp_list))])
+        #     legends.append(name)
+        # plt.legend(legends)
+        # plt.savefig(os.path.join(cfg.DIR ,'grad_ratios.png'), bbox_inches='tight')
+        # plt.clf()
+        for log in log_list:
+            log.save_results(cfg)
         plt.close()
 
         if (epoch+1) % 10 == 0:
@@ -452,6 +481,12 @@ if __name__ == '__main__':
         default=None,
         nargs=argparse.REMAINDER,
     )
+    parser.add_argument(
+        "--verbose", "-v",
+        help="Log level",
+        type=int,
+        default=0
+    )
     args = parser.parse_args()
 
     cfg.merge_from_file(args.cfg)
@@ -469,27 +504,7 @@ if __name__ == '__main__':
     with open(os.path.join(cfg.DIR, 'config.yaml'), 'w') as f:
         f.write("{}".format(cfg))
 
-    # Start from checkpoint
-    # if cfg.TRAIN.start_epoch > 0:
-    #     cfg.MODEL.weights_encoder = os.path.join(
-    #         cfg.DIR, 'encoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
-    #     cfg.MODEL.weights_decoder = os.path.join(
-    #         cfg.DIR, 'decoder_epoch_{}.pth'.format(cfg.TRAIN.start_epoch))
-    #     assert os.path.exists(cfg.MODEL.weights_encoder) and \
-    #         os.path.exists(cfg.MODEL.weights_decoder), "checkpoint does not exitst!"
-
-    # Parse gpu ids
-    # gpus = parse_devices(args.gpus)
-    # gpus = [x.replace('gpu', '') for x in gpus]
-    # gpus = [int(x) for x in gpus]
-    # num_gpus = len(gpus)
-    # cfg.TRAIN.batch_size = num_gpus * cfg.TRAIN.batch_size_per_gpu
-
-    # cfg.TRAIN.max_iters = cfg.TRAIN.epoch_iters * cfg.TRAIN.num_epoch
-    # cfg.TRAIN.running_lr_encoder = cfg.TRAIN.lr_encoder
-    # cfg.TRAIN.running_lr_decoder = cfg.TRAIN.lr_decoder
-
     random.seed(cfg.TRAIN.seed)
     torch.manual_seed(cfg.TRAIN.seed)
 
-    main(cfg)
+    main(cfg, verbose=args.verbose)
