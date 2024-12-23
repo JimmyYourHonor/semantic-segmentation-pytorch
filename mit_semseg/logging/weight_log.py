@@ -24,10 +24,12 @@ class LogWeight(Log):
         for name, m in model.named_modules():
             if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
                 meta_name = ".".join(name.split(".")[:3])
-            self.update_ratios_avg[meta_name] = AverageMeter()
-            self.grad_ratios_avg[meta_name] = AverageMeter()
+                self.update_ratios_avg[meta_name] = AverageMeter()
+                self.grad_ratios_avg[meta_name] = AverageMeter()
 
     def before_optim(self, model):
+        self.params_before = {}
+        self.grads = {}
         for name, m in model.named_modules():
             if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
                 meta_name = ".".join(name.split(".")[:3])
@@ -39,6 +41,7 @@ class LogWeight(Log):
                 self.grads[meta_name].append(m.weight.grad.detach().cpu())
 
     def after_optim(self, model):
+        self.params_after = {}
         for name, m in model.named_modules():
             if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
                 meta_name = ".".join(name.split(".")[:3])
@@ -78,7 +81,7 @@ class LogWeight(Log):
         plt.gca().set_prop_cycle('color', colors)
         legends = []
         for name in self.update_ratios_avgs[0].keys():
-            plt.plot([self.update_ratios_avgs[j][name].average() for j in range(len(self.update_ratios_avgs))])
+            plt.plot([self.update_ratios_avgs[j][name] for j in range(len(self.update_ratios_avgs))])
             legends.append(name)
         plt.plot([0, len(self.update_ratios_avgs)], [-3, -3], 'k') # these ratios should be ~1e-3, indicate on plot
         plt.legend(legends)
@@ -89,8 +92,7 @@ class LogWeight(Log):
         plt.gca().set_prop_cycle('color', colors)
         legends = []
         for name in self.grad_ratios_avgs[0].keys():
-            temp_list = [self.grad_ratios_avgs[j][name].average() for j in range(len(self.grad_ratios_avgs))]
-            plt.plot([sum(temp_list[i:i+10])/10 for i in range(10, len(temp_list))])
+            plt.plot([self.grad_ratios_avgs[j][name] for j in range(len(self.grad_ratios_avgs))])
             legends.append(name)
         plt.legend(legends)
         plt.savefig(os.path.join(cfg.DIR ,'grad_ratios.png'), bbox_inches='tight')
