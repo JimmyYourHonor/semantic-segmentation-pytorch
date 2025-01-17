@@ -8,6 +8,9 @@ class Log(ABC):
     def on_train_epoch_end(self, model):
         pass
 
+    def before_backward(self, input, loss, target, epoch):
+        pass
+
     def before_optim(self, model):
         pass
 

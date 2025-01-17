@@ -131,6 +131,9 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
         loss, acc, miou = segmentation_module(batch_data)
         loss = loss.mean()
 
+        for log in log_list:
+            log.before_backward(batch_data['img_data'], batch_data['seg_label'], loss, f"epoch_{epoch}")
+
         # Backward
         loss.backward()
 
