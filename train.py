@@ -313,6 +313,8 @@ def momentum_decay(optimizers, cur_iter, cfg):
         param_group['momentum'] = cfg.TRAIN.running_beta1
 
 def main(cfg, verbose):
+    if not os.path.isdir(cfg.DIR):
+        os.mkdir(cfg.DIR)
     log_list = []
     if verbose > 0:
         log_list.append(LogWeight())

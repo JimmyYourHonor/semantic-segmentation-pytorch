@@ -92,6 +92,7 @@ class LogActivationGrad(Log):
                             x = idx // 4
                             y = idx % 4
                             idx += 1
+                            act = act.reshape(int(np.sqrt(act.shape[0])), int(np.sqrt(act.shape[0])), act.shape[1])
                             ax[x,y].imshow(act)
                             ax[x,y].set_title(name + f"_{i}")
                     pdf.savefig(fig)

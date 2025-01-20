@@ -1,4 +1,5 @@
 import unittest
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,11 +16,13 @@ class TestLogActivations(unittest.TestCase):
         self.model = Block(
             dim=3, num_heads=1, mlp_ratio=4, qkv_bias=False, qk_scale=None,
             drop=0., attn_drop=0., drop_path=0., norm_layer=partial(nn.LayerNorm, eps=1e-6),
-            sr_ratio=1, sliding=False, kernel=16
+            sr_ratio=32, sliding=False, kernel=16
         ).cuda()
         cfg.DATASET.list_train = "./data/training_10.odgt"
         cfg.DIR = "ckpt_test"
         self.cfg = cfg
+        if not os.path.isdir(cfg.DIR):
+            os.mkdir(cfg.DIR)
         self.dataset = TrainDataset(
             cfg.DATASET.root_dataset,
             cfg.DATASET.list_train,
