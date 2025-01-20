@@ -8,7 +8,7 @@ import seaborn as sns
 import os
 
 from mit_semseg.logging.base_log import Log
-from mit_semseg.logging.utils import get_activation_hook, min_max_normalizes
+from mit_semseg.logging.utils import get_activation_hook, min_max_normalize
 from mit_semseg.utils import colorEncode
 colors = loadmat('data/color150.mat')['colors']
 
@@ -34,22 +34,30 @@ class LogActivationGrad(Log):
     def before_backward(self, input, target, loss, epoch):
         temp_idx = []
         if epoch == 'epoch_0':
-            if (input[0], target[0]) not in self.vis_set:
-                self.vis_set[(input[0], target[0])] = {'epoch_0':{}}
+            input_bytes = input[0].detach().cpu().numpy().tobytes()
+            target_bytes = target[0].detach().cpu().numpy().tobytes()
+            if (input_bytes, target_bytes) not in self.vis_set:
+                self.vis_set[(input_bytes, target_bytes)] = {'epoch_0':{}}
             temp_idx.append(0)
         else:
             for i in range(input.shape[0]):
-                if (input[i], target[i]) in self.vis_set:
-                    self.vis_set[(input[i], target[i])][epoch] = {}
+                input_bytes = input[i].detach().cpu().numpy().tobytes()
+                target_bytes = target[i].detach().cpu().numpy().tobytes()
+                if (input_bytes, target_bytes) in self.vis_set:
+                    self.vis_set[(input_bytes, target_bytes)][epoch] = {}
                     temp_idx.append(i)
         for name, activations in self.features.items():
             for i in temp_idx:
-                if name not in self.vis_set[(input[i],target[i])][epoch]:
-                    self.vis_set[(input[i],target[i])][epoch][name] = []
-            for i, act in enumerate(activations):
+                input_bytes = input[i].detach().cpu().numpy().tobytes()
+                target_bytes = target[i].detach().cpu().numpy().tobytes()
+                if name not in self.vis_set[(input_bytes,target_bytes)][epoch]:
+                    self.vis_set[(input_bytes,target_bytes)][epoch][name] = []
+            for act in activations:
                 grad = torch.autograd.grad(loss, act, retain_graph=True)[0].detach().cpu().numpy()
                 for i in temp_idx:
-                    self.vis_set[(input[i],target[i])][epoch][name].append(grad[i])
+                    input_bytes = input[i].detach().cpu().numpy().tobytes()
+                    target_bytes = target[i].detach().cpu().numpy().tobytes()
+                    self.vis_set[(input_bytes,target_bytes)][epoch][name].append(grad[i])
     
     def save_checkpoint(self):
         return {
@@ -61,8 +69,10 @@ class LogActivationGrad(Log):
             plt.rcParams["figure.figsize"] = [7.00, 3.50] 
             plt.rcParams["figure.autolayout"] = True
             for key, value in self.vis_set.items():
-                image, target = key
-                image = min_max_normalizes(image) * 255
+                image_bytes, target_bytes = key
+                image = np.frombuffer(image_bytes, dtype=np.float32).reshape([512, 512, 3])
+                target = np.frombuffer(target_bytes, dtype=np.int64).reshape([512, 512])
+                image = (min_max_normalize(image) * 255).astype(np.uint8)
                 target = colorEncode(target, colors)
                 fig1 = plt.figure()
                 plt.imshow(np.concatenate((image, target),

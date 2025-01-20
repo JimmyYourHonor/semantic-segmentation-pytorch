@@ -13,11 +13,11 @@ from mit_semseg.logging import *
 class TestLogActivations(unittest.TestCase):
     def setUp(self):
         self.model = Block(
-            dim=16, num_heads=1, mlp_ratio=4, qkv_bias=False, qk_scale=None,
+            dim=3, num_heads=1, mlp_ratio=4, qkv_bias=False, qk_scale=None,
             drop=0., attn_drop=0., drop_path=0., norm_layer=partial(nn.LayerNorm, eps=1e-6),
             sr_ratio=1, sliding=False, kernel=16
         ).cuda()
-        cfg.Dataset.list_train = "./data/training_10.odgt"
+        cfg.DATASET.list_train = "./data/training_10.odgt"
         cfg.DIR = "ckpt_test"
         self.cfg = cfg
         self.dataset = TrainDataset(
@@ -41,7 +41,9 @@ class TestLogActivations(unittest.TestCase):
             for i, batch_data in enumerate(self.loader):
                 for k, v in batch_data.items():
                     batch_data[k] = batch_data[k].cuda()
-                output = self.model(batch_data['img_data'])
+                _, _, H, W = batch_data['img_data'].shape
+                x = batch_data['img_data'].flatten(2).transpose(1, 2)
+                output = self.model(x, H, W)
                 loss = output.mean()
                 self.activation_log.before_backward(
                     batch_data['img_data'],
