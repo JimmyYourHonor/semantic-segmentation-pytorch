@@ -53,7 +53,11 @@ class LogActivationGrad(Log):
                 if name not in self.vis_set[(input_bytes,target_bytes)][epoch]:
                     self.vis_set[(input_bytes,target_bytes)][epoch][name] = []
             for act in activations:
-                grad = torch.autograd.grad(loss, act, retain_graph=True)[0].detach().cpu().numpy()
+                grad = torch.autograd.grad(loss, act, retain_graph=True)[0]
+                if len(grad.shape) == 2:
+                    grad = torch.mean(grad, dim=-1).detach().cpu().numpy()
+                elif len(grad.shape) == 3:
+                    grad = torch.mean(grad, dim=0).detach().cpu().numpy()
                 for i in temp_idx:
                     input_bytes = input[i].detach().cpu().numpy().tobytes()
                     target_bytes = target[i].detach().cpu().numpy().tobytes()
@@ -70,7 +74,7 @@ class LogActivationGrad(Log):
             plt.rcParams["figure.autolayout"] = True
             for key, value in self.vis_set.items():
                 image_bytes, target_bytes = key
-                image = np.frombuffer(image_bytes, dtype=np.float32).reshape([512, 512, 3])
+                image = np.frombuffer(image_bytes, dtype=np.float32).reshape([3, 512, 512]).transpose(1,2,0)
                 target = np.frombuffer(target_bytes, dtype=np.int64).reshape([512, 512])
                 image = (min_max_normalize(image) * 255).astype(np.uint8)
                 target = colorEncode(target, colors)
@@ -92,7 +96,11 @@ class LogActivationGrad(Log):
                             x = idx // 4
                             y = idx % 4
                             idx += 1
-                            act = act.reshape(int(np.sqrt(act.shape[0])), int(np.sqrt(act.shape[0])), act.shape[1])
+                            if len(act.shape) == 1:
+                              act = act.reshape(
+                                int(np.sqrt(act.shape[0])),
+                                int(np.sqrt(act.shape[0]))
+                              )
                             ax[x,y].imshow(act)
                             ax[x,y].set_title(name + f"_{i}")
                     pdf.savefig(fig)
