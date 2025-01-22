@@ -13,8 +13,9 @@ from mit_semseg.utils import colorEncode
 colors = loadmat('data/color150.mat')['colors']
 
 class LogActivationGrad(Log):
-    def __init__(self):
+    def __init__(self, threshold=0.7):
         super().__init__()
+        self.threshold = threshold
         self.hooks = []
         self.features = {}
         self.vis_set = {}
@@ -32,36 +33,38 @@ class LogActivationGrad(Log):
         self.features = {}
         
     def before_backward(self, input, target, loss, epoch):
-        temp_idx = []
-        if epoch == 'epoch_0':
-            input_bytes = input[0].detach().cpu().numpy().tobytes()
-            target_bytes = target[0].detach().cpu().numpy().tobytes()
-            if (input_bytes, target_bytes) not in self.vis_set:
-                self.vis_set[(input_bytes, target_bytes)] = {'epoch_0':{}}
-            temp_idx.append(0)
+        idx = np.random.rand(input.shape[0]) > self.threshold
+        if epoch not in self.vis_set:
+            self.vis_set[epoch] = {}
+            self.vis_set[epoch]['input'] = input[idx].detach().cpu().numpy()
+            self.vis_set[epoch]['target'] = target[idx].detach().cpu().numpy()
         else:
-            for i in range(input.shape[0]):
-                input_bytes = input[i].detach().cpu().numpy().tobytes()
-                target_bytes = target[i].detach().cpu().numpy().tobytes()
-                if (input_bytes, target_bytes) in self.vis_set:
-                    self.vis_set[(input_bytes, target_bytes)][epoch] = {}
-                    temp_idx.append(i)
+            self.vis_set[epoch]['input'] = np.concatenate(
+                [self.vis_set[epoch]['input'],
+                input[idx].detach().cpu().numpy()],
+                axis=0
+            )
+            self.vis_set[epoch]['target'] = np.concatenate(
+                [self.vis_set[epoch]['target'],
+                target[idx].detach().cpu().numpy()],
+                axis=0
+            )
         for name, activations in self.features.items():
-            for i in temp_idx:
-                input_bytes = input[i].detach().cpu().numpy().tobytes()
-                target_bytes = target[i].detach().cpu().numpy().tobytes()
-                if name not in self.vis_set[(input_bytes,target_bytes)][epoch]:
-                    self.vis_set[(input_bytes,target_bytes)][epoch][name] = []
-            for act in activations:
+            if name not in self.vis_set[epoch]:
+                self.vis_set[epoch][name] = []
+            for i, act in enumerate(activations):
                 grad = torch.autograd.grad(loss, act, retain_graph=True)[0]
                 if len(grad.shape) == 2:
                     grad = torch.mean(grad, dim=-1).detach().cpu().numpy()
                 elif len(grad.shape) == 3:
                     grad = torch.mean(grad, dim=0).detach().cpu().numpy()
-                for i in temp_idx:
-                    input_bytes = input[i].detach().cpu().numpy().tobytes()
-                    target_bytes = target[i].detach().cpu().numpy().tobytes()
-                    self.vis_set[(input_bytes,target_bytes)][epoch][name].append(grad[i])
+                if i == len(self.vis_set[epoch][name]):
+                    self.vis_set[epoch][name].append(grad[idx])
+                else:
+                    self.vis_set[epoch][name][i] = np.concatenate(
+                        [self.vis_set[epoch][name][i], grad[idx]],
+                        axis=0
+                    )
     
     def save_checkpoint(self):
         return {
@@ -72,38 +75,37 @@ class LogActivationGrad(Log):
         with PdfPages(os.path.join(cfg.DIR ,'activation_grad.pdf')) as pdf:
             plt.rcParams["figure.figsize"] = [7.00, 3.50] 
             plt.rcParams["figure.autolayout"] = True
-            for key, value in self.vis_set.items():
-                image_bytes, target_bytes = key
-                image = np.frombuffer(image_bytes, dtype=np.float32).reshape([3, 512, 512]).transpose(1,2,0)
-                target = np.frombuffer(target_bytes, dtype=np.int64).reshape([512, 512])
-                image = (min_max_normalize(image) * 255).astype(np.uint8)
-                target = colorEncode(target, colors)
-                fig1 = plt.figure()
-                plt.imshow(np.concatenate((image, target),
-                                        axis=1).astype(np.uint8))
-                plt.show()
-                pdf.savefig(fig1)
-
-                for epoch, names in value.items():
+            for epoch in self.vis_set:
+                image_set = self.vis_set[epoch]['input']
+                target_set = self.vis_set[epoch]['target']
+                for i in range(image_set.shape[0]):
+                    image = min_max_normalize(image_set[i])
+                    target = colorEncode(target_set[i], colors)
+                    fig1 = plt.figure()
+                    plt.imshow(np.concatenate((image, target),
+                                            axis=1).astype(np.uint8))
+                    plt.show()
+                    pdf.savefig(fig1)
                     total_act = 0
-                    for _, activations in names.items():
-                        total_act += len(activations)
+                    for name in self.vis_set[epoch]:
+                        total_act += len(self.vis_set[epoch][name])
                     fig, ax = plt.subplots((total_act + 3) // 4, 4)
                     fig.suptitle(epoch)
                     idx = 0
-                    for name, activations in names.items():
-                        for i, act in enumerate(activations):
+                    for name in self.vis_set[epoch]:
+                        for j, activations in enumerate(self.vis_set[epoch][name]):
+                            act = activations[i]
                             x = idx // 4
                             y = idx % 4
                             idx += 1
                             if len(act.shape) == 1:
-                              act = act.reshape(
+                                act = act.reshape(
                                 int(np.sqrt(act.shape[0])),
                                 int(np.sqrt(act.shape[0]))
-                              )
+                                )
                             ax[x,y].imshow(act)
-                            ax[x,y].set_title(name + f"_{i}")
-                    pdf.savefig(fig)
+                            ax[x,y].set_title(name + f"_{j}")
+                        pdf.savefig(fig)
 
     def load_checkpoint(self, checkpoint):
         self.vis_set = checkpoint["vis_set"]
