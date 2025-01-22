@@ -54,10 +54,10 @@ class LogActivationGrad(Log):
                 self.vis_set[epoch][name] = []
             for i, act in enumerate(activations):
                 grad = torch.autograd.grad(loss, act, retain_graph=True)[0]
-                if len(grad.shape) == 2:
+                if len(grad.shape) == 3:
                     grad = torch.mean(grad, dim=-1).detach().cpu().numpy()
-                elif len(grad.shape) == 3:
-                    grad = torch.mean(grad, dim=0).detach().cpu().numpy()
+                elif len(grad.shape) == 4:
+                    grad = torch.mean(grad, dim=1).detach().cpu().numpy()
                 if i == len(self.vis_set[epoch][name]):
                     self.vis_set[epoch][name].append(grad[idx])
                 else:
@@ -76,10 +76,11 @@ class LogActivationGrad(Log):
             plt.rcParams["figure.figsize"] = [7.00, 3.50] 
             plt.rcParams["figure.autolayout"] = True
             for epoch in self.vis_set:
-                image_set = self.vis_set[epoch]['input']
+                image_set = min_max_normalize(self.vis_set[epoch]['input'])
                 target_set = self.vis_set[epoch]['target']
                 for i in range(image_set.shape[0]):
-                    image = min_max_normalize(image_set[i])
+                    image = (image_set[i] * 255).astype(np.uint8)
+                    image = image.transpose(1,2,0)
                     target = colorEncode(target_set[i], colors)
                     fig1 = plt.figure()
                     plt.imshow(np.concatenate((image, target),
@@ -88,11 +89,15 @@ class LogActivationGrad(Log):
                     pdf.savefig(fig1)
                     total_act = 0
                     for name in self.vis_set[epoch]:
+                        if name in ['input', 'target']:
+                          continue
                         total_act += len(self.vis_set[epoch][name])
                     fig, ax = plt.subplots((total_act + 3) // 4, 4)
                     fig.suptitle(epoch)
                     idx = 0
                     for name in self.vis_set[epoch]:
+                        if name in ['input', 'target']:
+                          continue
                         for j, activations in enumerate(self.vis_set[epoch][name]):
                             act = activations[i]
                             x = idx // 4
@@ -103,9 +108,9 @@ class LogActivationGrad(Log):
                                 int(np.sqrt(act.shape[0])),
                                 int(np.sqrt(act.shape[0]))
                                 )
-                            ax[x,y].imshow(act)
+                            ax[x,y].imshow(min_max_normalize(act))
                             ax[x,y].set_title(name + f"_{j}")
-                        pdf.savefig(fig)
+                    pdf.savefig(fig)
 
     def load_checkpoint(self, checkpoint):
         self.vis_set = checkpoint["vis_set"]
