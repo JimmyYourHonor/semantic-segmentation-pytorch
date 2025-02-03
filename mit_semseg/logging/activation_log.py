@@ -13,7 +13,7 @@ from mit_semseg.utils import colorEncode
 colors = loadmat('data/color150.mat')['colors']
 
 class LogActivationGrad(Log):
-    def __init__(self, threshold=0.01):
+    def __init__(self, threshold=1e-4):
         super().__init__()
         self.threshold = threshold
         self.hooks = []
@@ -33,7 +33,7 @@ class LogActivationGrad(Log):
         self.features = {}
         
     def before_backward(self, input, target, loss, epoch):
-        idx = np.random.rand(input.shape[0]) > self.threshold
+        idx = np.random.rand(input.shape[0]) < self.threshold
         if epoch not in self.vis_set:
             self.vis_set[epoch] = {}
             self.vis_set[epoch]['input'] = input[idx].detach().cpu().numpy()
