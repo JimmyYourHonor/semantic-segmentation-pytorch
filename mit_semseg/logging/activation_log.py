@@ -13,7 +13,7 @@ from mit_semseg.utils import colorEncode
 colors = loadmat('data/color150.mat')['colors']
 
 class LogActivationGrad(Log):
-    def __init__(self, threshold=0.7):
+    def __init__(self, threshold=0.01):
         super().__init__()
         self.threshold = threshold
         self.hooks = []

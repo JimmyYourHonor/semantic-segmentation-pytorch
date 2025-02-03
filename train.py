@@ -137,43 +137,12 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
         # Backward
         loss.backward()
 
-        # Save gradients and weights before update to compute stats
-        # params_before = {}
-        # grads = {}
-        # for name, m in segmentation_module.named_modules():
-        #     if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
-        #         meta_name = ".".join(name.split(".")[:3])
-        #         if meta_name not in params_before:
-        #             params_before[meta_name] = []
-        #         if meta_name not in grads:
-        #             grads[meta_name] = []
-        #         params_before[meta_name].append(m.weight.detach().cpu())
-        #         grads[meta_name].append(m.weight.grad.detach().cpu())
-
         # update logs before optim
         for log in log_list:
             log.before_optim(segmentation_module)
 
         for optimizer in optimizers:
             optimizer.step()
-
-        # params_after = {}
-        # for name, m in segmentation_module.named_modules():
-        #     if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
-        #         meta_name = ".".join(name.split(".")[:3])
-        #         if meta_name not in params_after:
-        #             params_after[meta_name] = []
-        #         params_after[meta_name].append(m.weight.detach().cpu())
-        # # Get weights after update to compute stats
-        # update_ratios = {}
-        # grads_ratios = {}
-        # for name in params_before.keys():
-        #     param_before = torch.cat([param.flatten() for param in params_before[name]])
-        #     param_after = torch.cat([param.flatten() for param in params_after[name]])
-        #     grad = torch.cat([param.flatten() for param in grads[name]])
-        #     update = param_after - param_before
-        #     update_ratios[name] = (update.std() / param_after.std()).log10().data.item()
-        #     grads_ratios[name] = nn.functional.cosine_similarity(grad, update, dim=0).data.item()
 
         # update log after optimization
         for log in log_list:
@@ -204,8 +173,7 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
         history['train']['loss'].append(loss.data.item())
         history['train']['acc'].append(acc.data.item())
         history['train']['miou'].append(miou.data.item())
-        # history['train']['update_ratios'].append(update_ratios)
-        # history['train']['grad_ratios'].append(grads_ratios)
+
     # Finalize log after epoch ends
     for log in log_list:
         log.on_train_epoch_end(segmentation_module)
@@ -318,6 +286,8 @@ def main(cfg, verbose):
     log_list = []
     if verbose > 0:
         log_list.append(LogWeight())
+    if verbose > 1:
+        log_list.append(LogActivationGrad())
     # Network Builders
     net_encoder = ModelBuilder.build_encoder(
         arch=cfg.MODEL.arch_encoder.lower(),
@@ -423,28 +393,6 @@ def main(cfg, verbose):
         plt.plot(history['train']['epoch'], history['train']['miou'])
         plt.savefig(os.path.join(cfg.DIR ,'train_miou.png'), bbox_inches='tight')
         plt.clf()
-        # colors = sns.color_palette('hls', len(history['train']['update_ratios'][0]))
-        # plt.gca().set_prop_cycle('color', colors)
-        # # Also plot update_ratios and grad_ratios
-        # legends = []
-        # for name in history['train']['update_ratios'][0].keys():
-        #     plt.plot([history['train']['update_ratios'][j][name] for j in range(len(history['train']['update_ratios']))])
-        #     legends.append(name)
-        # plt.plot([0, len(history['train']['update_ratios'])], [-3, -3], 'k') # these ratios should be ~1e-3, indicate on plot
-        # plt.legend(legends)
-        # plt.savefig(os.path.join(cfg.DIR ,'update_ratios.png'), bbox_inches='tight')
-        # plt.clf()
-
-        # colors = sns.color_palette('hls', len(history['train']['update_ratios'][0]))
-        # plt.gca().set_prop_cycle('color', colors)
-        # legends = []
-        # for name in history['train']['grad_ratios'][0].keys():
-        #     temp_list = [history['train']['grad_ratios'][j][name] for j in range(len(history['train']['grad_ratios']))]
-        #     plt.plot([sum(temp_list[i:i+10])/10 for i in range(10, len(temp_list))])
-        #     legends.append(name)
-        # plt.legend(legends)
-        # plt.savefig(os.path.join(cfg.DIR ,'grad_ratios.png'), bbox_inches='tight')
-        # plt.clf()
         for log in log_list:
             log.save_results(cfg)
         plt.close()
