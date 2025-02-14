@@ -42,20 +42,17 @@ class TestLogActivations(unittest.TestCase):
         for epoch in range(2):
             self.activation_log.on_train_epoch_start(self.model)
             for i, batch_data in enumerate(self.loader):
+                self.model.zero_grad()
                 for k, v in batch_data.items():
                     batch_data[k] = batch_data[k].cuda()
                 _, _, H, W = batch_data['img_data'].shape
                 x = batch_data['img_data'].flatten(2).transpose(1, 2)
                 output = self.model(x, H, W)
                 loss = output.mean()
-                self.activation_log.before_backward(
-                    batch_data['img_data'],
-                    batch_data['seg_label'],
-                    loss,
-                    f"epoch_{epoch}"
-                )
-            self.activation_log.on_train_epoch_end(self.model)
-        self.activation_log.save_results(self.cfg)
+                loss.backward()
+                self.activation_log.after_backward()
+        #     self.activation_log.on_train_epoch_end(self.model)
+        # self.activation_log.save_results(self.cfg)
 
 if __name__ == 'main':
     unittest.main()

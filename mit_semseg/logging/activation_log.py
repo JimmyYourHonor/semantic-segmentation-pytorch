@@ -6,6 +6,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from scipy.io import loadmat
 import seaborn as sns
 import os
+import pdb
 
 from mit_semseg.logging.base_log import Log
 from mit_semseg.logging.utils import get_activation_hook, min_max_normalize
@@ -32,39 +33,42 @@ class LogActivationGrad(Log):
         self.hooks = []
         self.features = {}
         
-    def before_backward(self, input, target, loss, epoch):
-        idx = np.random.rand(input.shape[0]) < self.threshold
-        if epoch not in self.vis_set:
-            self.vis_set[epoch] = {}
-            self.vis_set[epoch]['input'] = input[idx].detach().cpu().numpy()
-            self.vis_set[epoch]['target'] = target[idx].detach().cpu().numpy()
-        else:
-            self.vis_set[epoch]['input'] = np.concatenate(
-                [self.vis_set[epoch]['input'],
-                input[idx].detach().cpu().numpy()],
-                axis=0
-            )
-            self.vis_set[epoch]['target'] = np.concatenate(
-                [self.vis_set[epoch]['target'],
-                target[idx].detach().cpu().numpy()],
-                axis=0
-            )
+    # def before_backward(self, input, target, loss, epoch):
+    #     idx = np.random.rand(input.shape[0]) < self.threshold
+    #     if epoch not in self.vis_set:
+    #         self.vis_set[epoch] = {}
+    #         self.vis_set[epoch]['input'] = input[idx].detach().cpu().numpy()
+    #         self.vis_set[epoch]['target'] = target[idx].detach().cpu().numpy()
+    #     else:
+    #         self.vis_set[epoch]['input'] = np.concatenate(
+    #             [self.vis_set[epoch]['input'],
+    #             input[idx].detach().cpu().numpy()],
+    #             axis=0
+    #         )
+    #         self.vis_set[epoch]['target'] = np.concatenate(
+    #             [self.vis_set[epoch]['target'],
+    #             target[idx].detach().cpu().numpy()],
+    #             axis=0
+    #         )
+    #     for name, activations in self.features.items():
+    #         if name not in self.vis_set[epoch]:
+    #             self.vis_set[epoch][name] = []
+    #         for i, act in enumerate(activations):
+    #             grad = torch.autograd.grad(loss, act, retain_graph=True)[0]
+    #             if len(grad.shape) == 3:
+    #                 grad = torch.mean(grad, dim=-1).detach().cpu().numpy()
+    #             elif len(grad.shape) == 4:
+    #                 grad = torch.mean(grad, dim=1).detach().cpu().numpy()
+    #             if i == len(self.vis_set[epoch][name]):
+    #                 self.vis_set[epoch][name].append(grad[idx])
+    #             else:
+    #                 self.vis_set[epoch][name][i] = np.concatenate(
+    #                     [self.vis_set[epoch][name][i], grad[idx]],
+    #                     axis=0
+    #                 )
+    def after_backward(self):
         for name, activations in self.features.items():
-            if name not in self.vis_set[epoch]:
-                self.vis_set[epoch][name] = []
-            for i, act in enumerate(activations):
-                grad = torch.autograd.grad(loss, act, retain_graph=True)[0]
-                if len(grad.shape) == 3:
-                    grad = torch.mean(grad, dim=-1).detach().cpu().numpy()
-                elif len(grad.shape) == 4:
-                    grad = torch.mean(grad, dim=1).detach().cpu().numpy()
-                if i == len(self.vis_set[epoch][name]):
-                    self.vis_set[epoch][name].append(grad[idx])
-                else:
-                    self.vis_set[epoch][name][i] = np.concatenate(
-                        [self.vis_set[epoch][name][i], grad[idx]],
-                        axis=0
-                    )
+            pdb.set_trace()
     
     def save_checkpoint(self):
         return {
