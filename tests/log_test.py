@@ -37,24 +37,21 @@ class TestLogActivations(unittest.TestCase):
             drop_last=True,
             pin_memory=True)
         
-        self.activation_log = LogActivationGrad()
+        self.activation_log = LogActivationGrad(self.model, 0.7)
     def test(self):
         for epoch in range(2):
-            self.activation_log.on_train_epoch_start(self.model)
+            self.activation_log.on_train_epoch_start()
             for i, batch_data in enumerate(self.loader):
+                self.model.zero_grad()
                 for k, v in batch_data.items():
                     batch_data[k] = batch_data[k].cuda()
                 _, _, H, W = batch_data['img_data'].shape
                 x = batch_data['img_data'].flatten(2).transpose(1, 2)
                 output = self.model(x, H, W)
                 loss = output.mean()
-                self.activation_log.before_backward(
-                    batch_data['img_data'],
-                    batch_data['seg_label'],
-                    loss,
-                    f"epoch_{epoch}"
-                )
-            self.activation_log.on_train_epoch_end(self.model)
+                loss.backward()
+                self.activation_log.before_optim(input=batch_data['img_data'], target=batch_data['seg_label'], epoch=f"epoch_{epoch}")
+            self.activation_log.on_train_epoch_end()
         self.activation_log.save_results(self.cfg)
 
 if __name__ == 'main':

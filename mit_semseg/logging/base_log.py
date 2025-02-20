@@ -2,25 +2,25 @@ from abc import ABC, abstractmethod
 
 class Log(ABC):
 
-    def on_train_epoch_start(self, model):
+    def on_train_epoch_start(self):
         pass
 
-    def on_train_epoch_end(self, model):
+    def on_train_epoch_end(self):
         pass
 
-    def before_backward(self, input, loss, target, epoch):
+    def before_backward(self, **kwargs):
         pass
 
-    def before_optim(self, model):
+    def before_optim(self):
         pass
 
-    def after_optim(self, model):
+    def after_optim(self):
         pass
 
-    def on_valid_epoch_start(self, model):
+    def on_valid_epoch_start(self):
         pass
 
-    def on_valid_epoch_end(self, model):
+    def on_valid_epoch_end(self):
         pass
 
     @abstractmethod

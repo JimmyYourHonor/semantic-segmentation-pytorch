@@ -10,8 +10,9 @@ from mit_semseg.utils import AverageMeter
 
 class LogWeight(Log):
 
-    def __init__(self):
+    def __init__(self, model):
         super().__init__()
+        self.model = model
         self.params_before = {}
         self.params_after = {}
         self.grads = {}
@@ -20,17 +21,17 @@ class LogWeight(Log):
         self.update_ratios_avgs = []
         self.grad_ratios_avgs = []
 
-    def on_train_epoch_start(self, model):
-        for name, m in model.named_modules():
+    def on_train_epoch_start(self):
+        for name, m in self.model.named_modules():
             if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
                 meta_name = ".".join(name.split(".")[:3])
                 self.update_ratios_avg[meta_name] = AverageMeter()
                 self.grad_ratios_avg[meta_name] = AverageMeter()
 
-    def before_optim(self, model):
+    def before_optim(self, **kwargs):
         self.params_before = {}
         self.grads = {}
-        for name, m in model.named_modules():
+        for name, m in self.model.named_modules():
             if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
                 meta_name = ".".join(name.split(".")[:3])
                 if meta_name not in self.params_before:
@@ -40,9 +41,9 @@ class LogWeight(Log):
                 self.params_before[meta_name].append(m.weight.detach().cpu())
                 self.grads[meta_name].append(m.weight.grad.detach().cpu())
 
-    def after_optim(self, model):
+    def after_optim(self):
         self.params_after = {}
-        for name, m in model.named_modules():
+        for name, m in self.model.named_modules():
             if isinstance(m, nn.Linear) or isinstance(m, nn.modules.conv._ConvNd):
                 meta_name = ".".join(name.split(".")[:3])
                 if meta_name not in self.params_after:
@@ -59,7 +60,7 @@ class LogWeight(Log):
             self.grad_ratios_avg[name].update(grad_ratio)
             self.update_ratios_avg[name].update(update_ratio)
 
-    def on_train_epoch_end(self, model):
+    def on_train_epoch_end(self):
         self.grad_ratios_avgs.append({})
         self.update_ratios_avgs.append({})
         for name in self.grad_ratios_avg.keys():

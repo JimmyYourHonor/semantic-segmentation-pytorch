@@ -13,5 +13,6 @@ def get_activation_hook(features, name):
         features[name] = []
         for input in inputs:
             input.requires_grad_()
+            input.retain_grad()
             features[name].append(input)
     return forward_pre_hook

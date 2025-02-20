@@ -111,7 +111,7 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
 
     # initialize loggers before epoch
     for log in log_list:
-        log.on_train_epoch_start(segmentation_module)
+        log.on_train_epoch_start()
 
     # main loop
     tic = time.time()
@@ -131,22 +131,19 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
         loss, acc, miou = segmentation_module(batch_data)
         loss = loss.mean()
 
-        for log in log_list:
-            log.before_backward(batch_data['img_data'], batch_data['seg_label'], loss, f"epoch_{epoch}")
-
         # Backward
         loss.backward()
 
         # update logs before optim
         for log in log_list:
-            log.before_optim(segmentation_module)
+            log.before_optim(input=batch_data['img_data'], target=batch_data['seg_label'], epoch=f"epoch_{epoch}")
 
         for optimizer in optimizers:
             optimizer.step()
 
         # update log after optimization
         for log in log_list:
-            log.after_optim(segmentation_module)
+            log.after_optim()
 
 
         # measure elapsed time
@@ -176,7 +173,7 @@ def train(segmentation_module, loader, optimizers, ave_total_loss, history, epoc
 
     # Finalize log after epoch ends
     for log in log_list:
-        log.on_train_epoch_end(segmentation_module)
+        log.on_train_epoch_end()
 
 
 def checkpoint(nets, history, cfg, epoch, encoder_opt=None, decoder_opt=None, log_list=[]):
@@ -283,11 +280,6 @@ def momentum_decay(optimizers, cur_iter, cfg):
 def main(cfg, verbose):
     if not os.path.isdir(cfg.DIR):
         os.mkdir(cfg.DIR)
-    log_list = []
-    if verbose > 0:
-        log_list.append(LogWeight())
-    if verbose > 1:
-        log_list.append(LogActivationGrad())
     # Network Builders
     net_encoder = ModelBuilder.build_encoder(
         arch=cfg.MODEL.arch_encoder.lower(),
@@ -312,7 +304,11 @@ def main(cfg, verbose):
     else:
         segmentation_module = SegmentationModule(
             net_encoder, net_decoder, crit)
-
+    log_list = []
+    if verbose > 0:
+        log_list.append(LogWeight(segmentation_module))
+    if verbose > 1:
+        log_list.append(LogActivationGrad(segmentation_module))
     # Dataset and Loader
     dataset_train = TrainDataset(
         cfg.DATASET.root_dataset,
