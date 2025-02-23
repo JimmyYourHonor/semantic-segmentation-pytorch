@@ -171,10 +171,15 @@ class Attention(nn.Module):
             q = unfold_sliding_window(q, kernel, (B,C,H,W), self.num_heads)
             k = unfold_sliding_window(k, kernel_sr, (B,C,H_sr,W_sr), self.num_heads)
             v = unfold_sliding_window(v, kernel_sr, (B,C,H_sr,W_sr), self.num_heads)
+            
 
         if self.use_pos_emb:
-            q = self.pos_emb(q, H, W)
-            k = self.pos_emb(k, H // self.sr_ratio, W // self.sr_ratio)
+            if self.sliding:
+                q = self.pos_emb(q, kernel, kernel)
+                k = self.pos_emb(k, kernel // self.sr_ratio, kernel // self.sr_ratio)
+            else:
+                q = self.pos_emb(q, H, W)
+                k = self.pos_emb(k, H // self.sr_ratio, W // self.sr_ratio)
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
