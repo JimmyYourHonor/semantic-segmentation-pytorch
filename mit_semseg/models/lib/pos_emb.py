@@ -65,8 +65,20 @@ class Image2DPositionalEncoding(nn.Module):
             torch.Tensor: Combined positional encoding of shape (1, channels, h, w)
         """
         # Get base embeddings
-        h_emb = torch.sin(self.h_embedding)  # (base_h, channels//2)
-        w_emb = torch.cos(self.w_embedding)  # (base_w, channels//2)
+        h_emb = torch.flatten(
+            torch.stack(
+                (self.h_embedding.sin(),self.h_embedding.cos()),
+                 dim=-1
+            ),
+            -2, -1
+        ) # (base_h, channels//2)
+        w_emb = torch.flatten(
+            torch.stack(
+                (self.w_embedding.sin(),self.w_embedding.cos()),
+                 dim=-1
+            ),
+            -2, -1
+        ) # (base_w, channels//2)
         
         # Create 2D positional encoding at base resolution
         h_emb = h_emb.unsqueeze(1).expand(-1, self.base_w, -1)
