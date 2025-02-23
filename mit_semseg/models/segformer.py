@@ -428,7 +428,7 @@ class MixVisionTransformer(nn.Module):
 
         return outs
 
-    def forward(self, x):
+    def forward(self, x, return_feature_maps=False):
         x = self.forward_features(x)
 
         return x
