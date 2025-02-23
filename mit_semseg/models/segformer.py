@@ -449,7 +449,7 @@ class DWConv(nn.Module):
 
         
 def mit_b0(pretrained=False, use_pos_emb=False, sliding=False, kernels=[64, 32, 16, 8]):
-    model = MixVisionTransformer(patch_size=4, embed_dims=[32, 64, 160, 256], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
+    model = MixVisionTransformer(embed_dims=[32, 64, 160, 256], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 2, 2], sr_ratios=[8, 4, 2, 1],
             drop_rate=0.0, drop_path_rate=0.1, use_pos_emb=use_pos_emb, sliding=sliding, kernels=kernels)
     if pretrained:
