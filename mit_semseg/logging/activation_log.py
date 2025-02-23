@@ -108,6 +108,8 @@ class LogActivationGrad(Log):
             plt.rcParams["figure.figsize"] = [7.00, 3.50] 
             plt.rcParams["figure.autolayout"] = True
             for epoch in self.vis_set:
+                if self.vis_set[epoch]['input'].size == 0:
+                    continue
                 image_set = min_max_normalize(self.vis_set[epoch]['input'])
                 target_set = self.vis_set[epoch]['target']
                 for i in range(image_set.shape[0]):

@@ -12,6 +12,8 @@ from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 
 import math
 
+from mit_semseg.models.lib.pos_emb import Image2DPositionalEncoding
+
 __all__ = ['MixVisionTransformer', 'mit_b0', 'mit_b1', 'mit_b2']
 
 model_paths = {
@@ -44,13 +46,6 @@ def img_size_to_emb(height, width, channel, freq):
 
     emb = emb.flatten(0,1).unsqueeze(0).unsqueeze(0)
     return emb
-
-def apply_rotatory_emb(x, pos_emb):
-    x_out = torch.cat((pos_emb[:,:,:,1::2]*x[:,:,:,1::2] - \
-                       pos_emb[:,:,:,::2]*x[:,:,:,::2], 
-                       pos_emb[:,:,:,1::2]*x[:,:,:,1::2] + \
-                       pos_emb[:,:,:,::2]*x[:,:,:,::2]), dim=-1)
-    return x_out
 
 def unfold_sliding_window(x, kernel, x_shape, num_heads):
     B,C,H,W = x_shape
@@ -113,7 +108,9 @@ class Mlp(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1, sliding=False, kernel=128):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
+                 attn_drop=0., proj_drop=0., sr_ratio=1, sliding=False,
+                 kernel=128, use_pos_emb=False):
         super().__init__()
         assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
 
@@ -134,6 +131,9 @@ class Attention(nn.Module):
         if sr_ratio > 1:
             self.sr = nn.Conv2d(dim, dim, kernel_size=sr_ratio, stride=sr_ratio)
             self.norm = nn.LayerNorm(dim)
+        self.use_pos_emb = use_pos_emb
+        if use_pos_emb:
+            self.pos_emb = Image2DPositionalEncoding(self.kernel, self.kernel, head_dim)
 
         self.apply(self._init_weights)
 
@@ -152,7 +152,7 @@ class Attention(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
 
-    def forward(self, x, H, W, pos_emb=None, pos_emb_sr=None):
+    def forward(self, x, H, W):
         B, N, C = x.shape
         q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
 
@@ -171,13 +171,15 @@ class Attention(nn.Module):
             q = unfold_sliding_window(q, kernel, (B,C,H,W), self.num_heads)
             k = unfold_sliding_window(k, kernel_sr, (B,C,H_sr,W_sr), self.num_heads)
             v = unfold_sliding_window(v, kernel_sr, (B,C,H_sr,W_sr), self.num_heads)
+            
 
-        if (pos_emb is not None):
-            # Only apply position embedding to q and k
-            # q = q + pos_emb
-            # k = k + pos_emb_sr
-            q = apply_rotatory_emb(q, pos_emb)
-            k = apply_rotatory_emb(k, pos_emb_sr)
+        if self.use_pos_emb:
+            if self.sliding:
+                q = self.pos_emb(q, kernel, kernel)
+                k = self.pos_emb(k, kernel // self.sr_ratio, kernel // self.sr_ratio)
+            else:
+                q = self.pos_emb(q, H, W)
+                k = self.pos_emb(k, H // self.sr_ratio, W // self.sr_ratio)
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
@@ -198,13 +200,14 @@ class Attention(nn.Module):
 class Block(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, sr_ratio=1, sliding=False, kernel=128):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, sr_ratio=1, sliding=False, kernel=128,
+                 use_pos_emb=False):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
-            dim,
-            num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
-            attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio, sliding=sliding, kernel=kernel)
+            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
+            attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio,
+            sliding=sliding, kernel=kernel, use_pos_emb=use_pos_emb)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -228,8 +231,8 @@ class Block(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
 
-    def forward(self, x, H, W, pos_emb=None, pos_emb_sr=None):
-        x = x + self.drop_path(self.attn(self.norm1(x), H, W, pos_emb, pos_emb_sr))
+    def forward(self, x, H, W):
+        x = x + self.drop_path(self.attn(self.norm1(x), H, W))
         x = x + self.drop_path(self.mlp(self.norm2(x), H, W))
 
         return x
@@ -279,7 +282,7 @@ class OverlapPatchEmbed(nn.Module):
 
 
 class MixVisionTransformer(nn.Module):
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
+    def __init__(self, img_size=224, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
                  num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
                  attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm,
                  depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], use_pos_emb=False, sliding=False, kernels=[64, 32, 16, 8]):
@@ -297,41 +300,17 @@ class MixVisionTransformer(nn.Module):
                                               embed_dim=embed_dims[2])
         self.patch_embed4 = OverlapPatchEmbed(img_size=img_size // 16, patch_size=3, stride=2, in_chans=embed_dims[2],
                                               embed_dim=embed_dims[3])
-
-        # Positional embedding
-        self.use_pos_emb = use_pos_emb
-        self.sliding = sliding
-        if self.use_pos_emb:
-            emb_ch_0 = math.ceil((embed_dims[0]/num_heads[0])/4) * 2
-            emb_ch_1 = math.ceil((embed_dims[1]/num_heads[1])/4) * 2
-            emb_ch_2 = math.ceil((embed_dims[2]/num_heads[2])/4) * 2
-            emb_ch_3 = math.ceil((embed_dims[3]/num_heads[3])/4) * 2
-            inv_freq_0 = 1.0 / (10000 ** (torch.arange(0, emb_ch_0, 2).float() / emb_ch_0))
-            inv_freq_1 = 1.0 / (10000 ** (torch.arange(0, emb_ch_1, 2).float() / emb_ch_1))
-            inv_freq_2 = 1.0 / (10000 ** (torch.arange(0, emb_ch_2, 2).float() / emb_ch_2))
-            inv_freq_3 = 1.0 / (10000 ** (torch.arange(0, emb_ch_3, 2).float() / emb_ch_3))
-            if self.sliding:
-                self.emb_0 = img_size_to_emb(kernels[0], kernels[0], emb_ch_0, inv_freq_0)
-                self.emb_1 = img_size_to_emb(kernels[1], kernels[1], emb_ch_1, inv_freq_1)
-                self.emb_2 = img_size_to_emb(kernels[2], kernels[2], emb_ch_2, inv_freq_2)
-                self.emb_3 = img_size_to_emb(kernels[3], kernels[3], emb_ch_3, inv_freq_3)
-            else:
-                self.emb_0 = img_size_to_emb(128, 128, emb_ch_0, inv_freq_0)
-                self.emb_1 = img_size_to_emb(64, 64, emb_ch_1, inv_freq_1)
-                self.emb_2 = img_size_to_emb(32, 32, emb_ch_2, inv_freq_2)
-                self.emb_3 = img_size_to_emb(16, 16, emb_ch_3, inv_freq_3)
-
         
-        if self.sliding:
+        if sliding:
             self.kernel_0 = kernels[0]
             self.kernel_1 = kernels[1]
             self.kernel_2 = kernels[2]
             self.kernel_3 = kernels[3]
         else:
-            self.kernel_0 = None
-            self.kernel_1 = None
-            self.kernel_2 = None
-            self.kernel_3 = None
+            self.kernel_0 = 128
+            self.kernel_1 = 64
+            self.kernel_2 = 32
+            self.kernel_3 = 16
 
         # transformer encoder
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
@@ -339,7 +318,7 @@ class MixVisionTransformer(nn.Module):
         self.block1 = nn.ModuleList([Block(
             dim=embed_dims[0], num_heads=num_heads[0], mlp_ratio=mlp_ratios[0], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[0], sliding=sliding, kernel=self.kernel_0)
+            sr_ratio=sr_ratios[0], sliding=sliding, kernel=self.kernel_0, use_pos_emb=use_pos_emb)
             for i in range(depths[0])])
         self.norm1 = norm_layer(embed_dims[0])
 
@@ -347,7 +326,7 @@ class MixVisionTransformer(nn.Module):
         self.block2 = nn.ModuleList([Block(
             dim=embed_dims[1], num_heads=num_heads[1], mlp_ratio=mlp_ratios[1], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[1], sliding=sliding, kernel=self.kernel_1)
+            sr_ratio=sr_ratios[1], sliding=sliding, kernel=self.kernel_1, use_pos_emb=use_pos_emb)
             for i in range(depths[1])])
         self.norm2 = norm_layer(embed_dims[1])
 
@@ -355,7 +334,7 @@ class MixVisionTransformer(nn.Module):
         self.block3 = nn.ModuleList([Block(
             dim=embed_dims[2], num_heads=num_heads[2], mlp_ratio=mlp_ratios[2], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[2], sliding=sliding, kernel=self.kernel_2)
+            sr_ratio=sr_ratios[2], sliding=sliding, kernel=self.kernel_2, use_pos_emb=use_pos_emb)
             for i in range(depths[2])])
         self.norm3 = norm_layer(embed_dims[2])
 
@@ -363,12 +342,9 @@ class MixVisionTransformer(nn.Module):
         self.block4 = nn.ModuleList([Block(
             dim=embed_dims[3], num_heads=num_heads[3], mlp_ratio=mlp_ratios[3], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[3], sliding=sliding, kernel=self.kernel_3)
+            sr_ratio=sr_ratios[3], sliding=sliding, kernel=self.kernel_3, use_pos_emb=use_pos_emb)
             for i in range(depths[3])])
         self.norm4 = norm_layer(embed_dims[3])
-
-        # classification head
-        # self.head = nn.Linear(embed_dims[3], num_classes) if num_classes > 0 else nn.Identity()
 
         self.apply(self._init_weights)
 
@@ -386,11 +362,6 @@ class MixVisionTransformer(nn.Module):
             m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
             if m.bias is not None:
                 m.bias.data.zero_()
-
-    # def init_weights(self, pretrained=None):
-    #     if isinstance(pretrained, str):
-    #         logger = get_root_logger()
-    #         load_checkpoint(self, pretrained, map_location='cpu', strict=False, logger=logger)
 
     def reset_drop_path(self, drop_path_rate):
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(self.depths))]
@@ -430,112 +401,32 @@ class MixVisionTransformer(nn.Module):
 
         # stage 1
         x, H, W = self.patch_embed1(x)
-        if(self.use_pos_emb):
-            if(self.sliding):
-                emb = self.emb_0.to(x.device)
-                kernel = self.kernel_0
-                emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
-                                    size=(kernel//self.sr_ratios[0],kernel//self.sr_ratios[0]), 
-                                    mode='bilinear')
-                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
-            else:
-                self.emb_0 = self.emb_0.to(x.device)
-                emb = F.interpolate(self.emb_0.reshape(1,128,128,-1).permute(0,3,1,2), 
-                                    size=(H,W), mode='bilinear')
-                emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-                emb_sr = F.interpolate(self.emb_0.reshape(1,128,128,-1).permute(0,3,1,2), 
-                                    size=(H//self.sr_ratios[0],W//self.sr_ratios[0]), 
-                                    mode='bilinear')
-                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
-        else:
-            emb = None
-            emb_sr = None
-        for i, blk in enumerate(self.block1):
-            x = blk(x, H, W, emb, emb_sr)
+        for blk in self.block1:
+            x = blk(x, H, W)
         x = self.norm1(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         # stage 2
         x, H, W = self.patch_embed2(x)
-        if(self.use_pos_emb):
-            if(self.sliding):
-                emb = self.emb_1.to(x.device)
-                kernel = self.kernel_1
-                emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
-                                    size=(kernel//self.sr_ratios[1],kernel//self.sr_ratios[1]), 
-                                    mode='bilinear')
-                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
-            else:
-                self.emb_1 = self.emb_1.to(x.device)
-                emb = F.interpolate(self.emb_1.reshape(1,64,64,-1).permute(0,3,1,2), 
-                                      size=(H,W), mode='bilinear')
-                emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-                emb_sr = F.interpolate(self.emb_1.reshape(1,64,64,-1).permute(0,3,1,2), 
-                                      size=(H//self.sr_ratios[1],W//self.sr_ratios[1]), 
-                                      mode='bilinear')
-                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
-        else:
-            emb = None
-            emb_sr = None
-        for i, blk in enumerate(self.block2):
-            x = blk(x, H, W, emb, emb_sr)
+        for blk in self.block2:
+            x = blk(x, H, W)
         x = self.norm2(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         # stage 3
         x, H, W = self.patch_embed3(x)
-        if(self.use_pos_emb):
-            if(self.sliding):
-                emb = self.emb_2.to(x.device)
-                kernel = self.kernel_2
-                emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
-                                    size=(kernel//self.sr_ratios[2],kernel//self.sr_ratios[2]), 
-                                    mode='bilinear')
-                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
-            else:
-                self.emb_2 = self.emb_2.to(x.device)
-                emb = F.interpolate(self.emb_2.reshape(1,32,32,-1).permute(0,3,1,2), 
-                                      size=(H,W), mode='bilinear')
-                emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-                emb_sr = F.interpolate(self.emb_2.reshape(1,32,32,-1).permute(0,3,1,2), 
-                                      size=(H//self.sr_ratios[2],W//self.sr_ratios[2]), 
-                                      mode='bilinear')
-                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
-        else:
-            emb = None
-            emb_sr = None
-        for i, blk in enumerate(self.block3):
-            x = blk(x, H, W, emb, emb_sr)
+        for blk in self.block3:
+            x = blk(x, H, W)
         x = self.norm3(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
 
         # stage 4
         x, H, W = self.patch_embed4(x)
-        if(self.use_pos_emb):
-            if(self.sliding):
-                emb = self.emb_3.to(x.device)
-                kernel = self.kernel_3
-                emb_sr = F.interpolate(emb.reshape(1,kernel,kernel,-1).permute(0,3,1,2), 
-                                    size=(kernel//self.sr_ratios[3],kernel//self.sr_ratios[3]), 
-                                    mode='bilinear')
-                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
-            else:
-                self.emb_3 = self.emb_3.to(x.device)
-                emb = F.interpolate(self.emb_3.reshape(1,16,16,-1).permute(0,3,1,2), 
-                                      size=(H,W), mode='bilinear')
-                emb = torch.flatten(emb, -2, -1).transpose(2,1).unsqueeze(0)
-                emb_sr = F.interpolate(self.emb_3.reshape(1,16,16,-1).permute(0,3,1,2), 
-                                      size=(H//self.sr_ratios[3],W//self.sr_ratios[3]), 
-                                      mode='bilinear')
-                emb_sr = torch.flatten(emb_sr, -2, -1).transpose(2,1).unsqueeze(0)
-        else:
-            emb = None
-            emb = None
-        for i, blk in enumerate(self.block4):
-            x = blk(x, H, W, emb, emb_sr)
+        for blk in self.block4:
+            x = blk(x, H, W)
         x = self.norm4(x)
         x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         outs.append(x)
@@ -544,7 +435,6 @@ class MixVisionTransformer(nn.Module):
 
     def forward(self, x, return_feature_maps=False):
         x = self.forward_features(x)
-        # x = self.head(x)
 
         return x
 
@@ -564,7 +454,7 @@ class DWConv(nn.Module):
 
         
 def mit_b0(pretrained=False, use_pos_emb=False, sliding=False, kernels=[64, 32, 16, 8]):
-    model = MixVisionTransformer(patch_size=4, embed_dims=[32, 64, 160, 256], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
+    model = MixVisionTransformer(embed_dims=[32, 64, 160, 256], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 2, 2], sr_ratios=[8, 4, 2, 1],
             drop_rate=0.0, drop_path_rate=0.1, use_pos_emb=use_pos_emb, sliding=sliding, kernels=kernels)
     if pretrained:
