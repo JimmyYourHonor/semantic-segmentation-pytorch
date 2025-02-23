@@ -19,6 +19,7 @@ from mit_semseg.utils import AverageMeter, parse_devices, setup_logger, accuracy
 from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback, train_collate, async_copy_to
 from mit_semseg.lib.utils import as_numpy
 from mit_semseg.logging import *
+from mit_semseg.models.lib.pos_emb import Image2DPositionalEncoding
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -223,6 +224,12 @@ def group_weight(module):
                 group_no_decay.append(m.weight)
             if m.bias is not None:
                 group_no_decay.append(m.bias)
+        elif isinstance(m, Image2DPositionalEncoding):
+            if m.h_embedding is not None:
+                group_no_decay.append(m.h_embedding)
+            if m.w_embedding is not None:
+                group_no_decay.append(m.w_embedding)
+
 
     assert len(list(module.parameters())) == len(group_decay) + len(group_no_decay)
     groups = [dict(params=group_decay), dict(params=group_no_decay, weight_decay=.0)]
