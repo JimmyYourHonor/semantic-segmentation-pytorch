@@ -134,7 +134,9 @@ class Image2DPositionalEncoding(nn.Module):
         # Get positional encodings
         with torch.no_grad():
             pos_enc = self.create_2d_positional_encoding(h, w)
-            pos_enc = pos_enc.squeeze(0)  # (channels, h, w)
+            pos_enc = pos_enc.squeeze(0)
+            pos_enc = pos_enc.squeeze(0)
+            pos_enc = pos_enc.transpose(0,1).reshape(self.channels,h,w)
         
         # Create subplot grid
         n_channels = len(channels_to_show)
@@ -192,7 +194,9 @@ class Image2DPositionalEncoding(nn.Module):
         # Get positional encodings
         with torch.no_grad():
             pos_enc = self.create_2d_positional_encoding(h, w)
-            pos_enc = pos_enc.squeeze(0)  # (channels, h, w)
+            pos_enc = pos_enc.squeeze(0)
+            pos_enc = pos_enc.squeeze(0)
+            pos_enc = pos_enc.transpose(0,1).reshape(self.channels,h,w)
         
         # Reshape to (h*w, channels)
         pos_enc = pos_enc.permute(1, 2, 0).reshape(-1, self.channels)
