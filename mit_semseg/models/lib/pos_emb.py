@@ -43,14 +43,17 @@ class Image2DPositionalEncoding(nn.Module):
         self.interpolation_mode = interpolation_mode
         
         # Initialize using 2D sine/cosine patterns
-        h_pos = torch.arange(base_h).unsqueeze(1)
-        w_pos = torch.arange(base_w).unsqueeze(1)
+        # h_pos = torch.arange(base_h).unsqueeze(1)
+        # w_pos = torch.arange(base_w).unsqueeze(1)
         
-        div_term = 1.0 / (10000 ** (torch.arange(0, self.channels//2, 2).float() / (self.channels//2)))
+        # div_term = 1.0 / (10000 ** (torch.arange(0, self.channels//2, 2).float() / (self.channels//2)))
 
         # Create separate learnable embeddings for height and width
-        self.h_embedding = nn.Parameter(h_pos * div_term)
-        self.w_embedding = nn.Parameter(w_pos * div_term)
+        self.h_embedding = nn.Parameter(torch.empty(base_h, channels//4))
+        self.w_embedding = nn.Parameter(torch.empty(base_w, channels//4))
+
+        torch.nn.init.normal_(self.h_embedding.data)
+        torch.nn.init.normal_(self.w_embedding.data)
         
     def create_2d_positional_encoding(self, h: int, w: int) -> torch.Tensor:
         """
