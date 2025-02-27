@@ -214,7 +214,7 @@ class Image2DPositionalEncoding(nn.Module):
         ax1.set_ylabel('Position Index')
         
         # Plot center row similarity
-        center_idx = (h * w) // 2
+        center_idx = (h//2 - 1) * w + (h//2 - 1)
         center_similarity = similarity[center_idx].reshape(h, w)
         sns.heatmap(center_similarity.cpu().numpy(), ax=ax2, cmap='viridis')
         ax2.set_title('Similarity to Center Position')
