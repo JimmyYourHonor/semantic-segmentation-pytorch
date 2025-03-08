@@ -37,8 +37,10 @@ def drawPage(vis_set, pdf, epoch, page, i):
                 ax[x,y].set_title(name + f"_{j}")
                 if idx == 8:
                     pdf.savefig(fig)
+                    plt.clf()
                     return
     pdf.savefig(fig)
+    plt.clf()
 
 class LogActivationGrad(Log):
     def __init__(self, model, threshold=3e-6):
@@ -119,8 +121,8 @@ class LogActivationGrad(Log):
                     fig1 = plt.figure()
                     plt.imshow(np.concatenate((image, target),
                                             axis=1).astype(np.uint8))
-                    plt.show()
                     pdf.savefig(fig1)
+                    plt.clf()
                     total_act = 0
                     for name in self.vis_set[epoch]:
                         if name in ['input', 'target']:
@@ -128,7 +130,8 @@ class LogActivationGrad(Log):
                         total_act += len(self.vis_set[epoch][name])
                     pages = (total_act + 7) // 8
                     for p in range(pages):
-                        drawPage(self.vis_set, pdf, epoch, p, i) 
+                        drawPage(self.vis_set, pdf, epoch, p, i)
+            plt.close()
 
     def load_checkpoint(self, checkpoint):
         self.vis_set = checkpoint["vis_set"]

@@ -12,7 +12,7 @@ from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 
 import math
 
-from mit_semseg.models.lib.pos_emb import Image2DPositionalEncoding
+from mit_semseg.models.lib.pos_emb import Image2DPositionalEncoding, RelativePositionalEncoding
 
 __all__ = ['MixVisionTransformer', 'mit_b0', 'mit_b1', 'mit_b2']
 
@@ -110,7 +110,7 @@ class Mlp(nn.Module):
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
                  attn_drop=0., proj_drop=0., sr_ratio=1, sliding=False,
-                 kernel=128, use_pos_emb=False):
+                 kernel=128, use_pos_emb=False, use_rel_pos_emb=False):
         super().__init__()
         assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
 
@@ -134,6 +134,9 @@ class Attention(nn.Module):
         self.use_pos_emb = use_pos_emb
         if use_pos_emb:
             self.pos_emb = Image2DPositionalEncoding(self.kernel, self.kernel, head_dim)
+        self.use_rel_pos_emb = use_rel_pos_emb
+        if use_rel_pos_emb:
+            self.rel_pos_emb = RelativePositionalEncoding(self.kernel, self.kernel, num_heads, sr_ratio)
 
         self.apply(self._init_weights)
 
@@ -182,6 +185,13 @@ class Attention(nn.Module):
                 k = self.pos_emb(k, H // self.sr_ratio, W // self.sr_ratio)
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
+        if self.use_rel_pos_emb:
+            if self.sliding:
+                attn = self.rel_pos_emb(attn)
+            else:
+                raise Exception('relative positional encoding can' \
+                                'only be applied with sliding window attention')
+        attn = self.rel_pos_emb(attn)
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
         x = (attn @ v).transpose(1, 2)
@@ -201,13 +211,15 @@ class Block(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, sr_ratio=1, sliding=False, kernel=128,
-                 use_pos_emb=False):
+                 use_pos_emb=False, use_rel_pos_emb=False):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
             dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
             attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio,
-            sliding=sliding, kernel=kernel, use_pos_emb=use_pos_emb)
+            sliding=sliding, kernel=kernel, use_pos_emb=use_pos_emb,
+            use_rel_pos_emb=use_rel_pos_emb
+        )
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -285,7 +297,8 @@ class MixVisionTransformer(nn.Module):
     def __init__(self, img_size=224, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
                  num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
                  attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm,
-                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], use_pos_emb=False, sliding=False, kernels=[64, 32, 16, 8]):
+                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], use_pos_emb=False,
+                 use_rel_pos_emb=False, sliding=False, kernels=[64, 32, 16, 8]):
         super().__init__()
         self.num_classes = num_classes
         self.depths = depths
@@ -318,7 +331,8 @@ class MixVisionTransformer(nn.Module):
         self.block1 = nn.ModuleList([Block(
             dim=embed_dims[0], num_heads=num_heads[0], mlp_ratio=mlp_ratios[0], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[0], sliding=sliding, kernel=self.kernel_0, use_pos_emb=use_pos_emb)
+            sr_ratio=sr_ratios[0], sliding=sliding, kernel=self.kernel_0, use_pos_emb=use_pos_emb,
+            use_rel_pos_emb=use_rel_pos_emb)
             for i in range(depths[0])])
         self.norm1 = norm_layer(embed_dims[0])
 
@@ -326,7 +340,8 @@ class MixVisionTransformer(nn.Module):
         self.block2 = nn.ModuleList([Block(
             dim=embed_dims[1], num_heads=num_heads[1], mlp_ratio=mlp_ratios[1], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[1], sliding=sliding, kernel=self.kernel_1, use_pos_emb=use_pos_emb)
+            sr_ratio=sr_ratios[1], sliding=sliding, kernel=self.kernel_1, use_pos_emb=use_pos_emb,
+            use_rel_pos_emb=use_rel_pos_emb)
             for i in range(depths[1])])
         self.norm2 = norm_layer(embed_dims[1])
 
@@ -334,7 +349,8 @@ class MixVisionTransformer(nn.Module):
         self.block3 = nn.ModuleList([Block(
             dim=embed_dims[2], num_heads=num_heads[2], mlp_ratio=mlp_ratios[2], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[2], sliding=sliding, kernel=self.kernel_2, use_pos_emb=use_pos_emb)
+            sr_ratio=sr_ratios[2], sliding=sliding, kernel=self.kernel_2, use_pos_emb=use_pos_emb,
+            use_rel_pos_emb=use_rel_pos_emb)
             for i in range(depths[2])])
         self.norm3 = norm_layer(embed_dims[2])
 
@@ -342,7 +358,8 @@ class MixVisionTransformer(nn.Module):
         self.block4 = nn.ModuleList([Block(
             dim=embed_dims[3], num_heads=num_heads[3], mlp_ratio=mlp_ratios[3], qkv_bias=qkv_bias, qk_scale=qk_scale,
             drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
-            sr_ratio=sr_ratios[3], sliding=sliding, kernel=self.kernel_3, use_pos_emb=use_pos_emb)
+            sr_ratio=sr_ratios[3], sliding=sliding, kernel=self.kernel_3, use_pos_emb=use_pos_emb,
+            use_rel_pos_emb=use_rel_pos_emb)
             for i in range(depths[3])])
         self.norm4 = norm_layer(embed_dims[3])
 
@@ -453,10 +470,10 @@ class DWConv(nn.Module):
         return x
 
         
-def mit_b0(pretrained=False, use_pos_emb=False, sliding=False, kernels=[64, 32, 16, 8]):
+def mit_b0(pretrained=False, use_pos_emb=False, use_rel_pos_emb=False, sliding=False, kernels=[64, 32, 16, 8]):
     model = MixVisionTransformer(embed_dims=[32, 64, 160, 256], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
             qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 2, 2], sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0, drop_path_rate=0.1, use_pos_emb=use_pos_emb, sliding=sliding, kernels=kernels)
+            drop_rate=0.0, drop_path_rate=0.1, use_pos_emb=use_pos_emb, use_rel_pos_emb=use_rel_pos_emb, sliding=sliding, kernels=kernels)
     if pretrained:
         model.load_state_dict(torch.load(model_paths['mit_b0']), strict=False)
     return model
