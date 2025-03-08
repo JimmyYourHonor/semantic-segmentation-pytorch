@@ -54,7 +54,13 @@ class LogWeight(Log):
                 meta_name = ".".join(name.split(".")[:3])
                 if meta_name not in self.params_after:
                     self.params_after[meta_name] = []
-                self.params_after[meta_name].append(m.weight.detach().cpu())
+                self.params_after[meta_name].append(m.h_embedding.detach().cpu())
+                self.params_after[meta_name].append(m.w_embedding.detach().cpu())
+            elif isinstance(m, RelativePositionalEncoding):
+                meta_name = ".".join(name.split(".")[:3])
+                if meta_name not in self.params_after:
+                    self.params_after[meta_name] = []
+                self.params_after[meta_name].append(m.relative_position_bias_table.detach().cpu())
 
         for name in self.params_before.keys():
             param_before = torch.cat([param.flatten() for param in self.params_before[name]])
