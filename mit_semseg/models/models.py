@@ -80,7 +80,9 @@ class ModelBuilder:
         #    m.weight.data.normal_(0.0, 0.0001)
 
     @staticmethod
-    def build_encoder(arch='resnet50dilated', fc_dim=512, weights='', use_pos_emb=False, sliding=False, kernels=[64,32,16,8]):
+    def build_encoder(
+        arch='resnet50dilated', fc_dim=512, weights='', use_pos_emb=False,
+        use_rel_pos_emb=False, sliding=False, kernels=[64,32,16,8]):
         pretrained = True if len(weights) == 0 else False
         arch = arch.lower()
         if arch == 'mobilenetv2dilated':
@@ -118,8 +120,9 @@ class ModelBuilder:
         elif arch == 'hrnetv2':
             net_encoder = hrnet.__dict__['hrnetv2'](pretrained=pretrained)
         elif arch == 'mit_b0':
-            net_encoder = segformer.__dict__['mit_b0'](pretrained=pretrained,
-                                                       use_pos_emb=use_pos_emb, sliding=sliding, kernels=kernels)
+            net_encoder = segformer.__dict__['mit_b0'](
+                pretrained=pretrained, use_pos_emb=use_pos_emb,
+                use_rel_pos_emb=use_rel_pos_emb, sliding=sliding, kernels=kernels)
         elif arch == 'mit_b1':
             net_encoder = segformer.__dict__['mit_b1'](pretrained=pretrained)
         elif arch == 'mit_b2':

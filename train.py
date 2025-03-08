@@ -293,6 +293,7 @@ def main(cfg, verbose):
         fc_dim=cfg.MODEL.fc_dim,
         weights=cfg.MODEL.weights_encoder,
         use_pos_emb=cfg.MODEL.use_pos_emb,
+        use_rel_pos_emb=cfg.MODEL.use_rel_pos_emb,
         sliding=cfg.MODEL.sliding,
         kernels=cfg.MODEL.kernels)
     net_decoder = ModelBuilder.build_decoder(

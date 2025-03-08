@@ -227,21 +227,44 @@ class Image2DPositionalEncoding(nn.Module):
         plt.tight_layout()
         plt.show()
 
-# Example usage
-def visualization_example():
-    # Create the model
-    pos_encoder = Image2DPositionalEncoding(
-        base_h=32,
-        base_w=32,
-        channels=256
-    )
-    
-    # Visualize the first few channels
-    pos_encoder.visualize_encodings(
-        channels_to_show=[0, 1, 2, 3, 4, 5],
-        figsize=(15, 10),
-        cmap='coolwarm'
-    )
-    
-    # Visualize position similarity
-    pos_encoder.visualize_similarity_matrix(figsize=(12, 5))
+class RelativePositionalEncoding(nn.Module):
+    def __init__(
+        self, 
+        base_h: int, 
+        base_w: int, 
+        channels: int,
+        sr_ratio: int,
+    ):
+        super().__init__()
+        self.base_h = base_h
+        self.base_w = base_w
+        self.channels = channels
+        self.sr_ratio = sr_ratio
+        base_h_sr = base_h // sr_ratio
+        base_w_sr = base_w // sr_ratio
+        # define a parameter table of relative position bias
+        self.relative_position_bias_table = nn.Parameter(
+            torch.zeros(((base_h + base_h_sr) - 1) * ((base_w + base_w_sr) - 1), channels))  # (h+h_sr)-1 * (w+w_sr)-1, channels
+
+        # get pair-wise relative position index for each token inside the window
+        coords_h = torch.arange(base_h)
+        coords_w = torch.arange(base_w)
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, h, w
+        coords_flatten = torch.flatten(coords, 1)  # 2, h*w
+        coords_h_sr = torch.arange(base_h_sr)
+        coords_w_sr = torch.arange(base_w_sr)
+        coords_sr = torch.stack(torch.meshgrid([coords_h_sr, coords_w_sr]))  # 2, h, w
+        coords_flatten_sr = torch.flatten(coords_sr, 1)  # 2, h*w
+        relative_coords = coords_flatten[:, :, None] - coords_flatten_sr[:, None, :]  # 2, h*w, h_sr*w_sr
+        relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # h*w, h_sr*w_sr, 2
+        relative_coords[:, :, 0] += base_h_sr - 1  # shift to start from 0
+        relative_coords[:, :, 1] += base_w_sr - 1
+        relative_coords[:, :, 0] *= (base_w + base_w_sr) - 1
+        relative_position_index = relative_coords.sum(-1)  # h*w, h_sr*w_sr
+        self.register_buffer("relative_position_index", relative_position_index)
+    def forward(self, attn):
+        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
+            self.base_h * self.base_w, self.base_h * self.base_w, -1)  # h*w,h_sr*w_sr,nH
+        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, h*w, h_sr*w_sr
+        attn = attn + relative_position_bias.unsqueeze(0)
+        return attn

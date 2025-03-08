@@ -7,6 +7,7 @@ import os
 
 from mit_semseg.logging.base_log import Log
 from mit_semseg.utils import AverageMeter
+from mit_semseg.models.lib.pos_emb import Image2DPositionalEncoding, RelativePositionalEncoding
 
 class LogWeight(Log):
 
@@ -49,6 +50,11 @@ class LogWeight(Log):
                 if meta_name not in self.params_after:
                     self.params_after[meta_name] = []
                 self.params_after[meta_name].append(m.weight.detach().cpu())
+            elif isinstance(m, Image2DPositionalEncoding):
+                meta_name = ".".join(name.split(".")[:3])
+                if meta_name not in self.params_after:
+                    self.params_after[meta_name] = []
+                self.params_after[meta_name].append(m.weight.detach().cpu())
 
         for name in self.params_before.keys():
             param_before = torch.cat([param.flatten() for param in self.params_before[name]])
@@ -85,7 +91,7 @@ class LogWeight(Log):
             plt.plot([self.update_ratios_avgs[j][name] for j in range(len(self.update_ratios_avgs))])
             legends.append(name)
         plt.plot([0, len(self.update_ratios_avgs)], [-3, -3], 'k') # these ratios should be ~1e-3, indicate on plot
-        plt.legend(legends)
+        plt.legend(legends, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
         plt.savefig(os.path.join(cfg.DIR ,'update_ratios.png'), bbox_inches='tight')
         plt.clf()
 
@@ -95,7 +101,7 @@ class LogWeight(Log):
         for name in self.grad_ratios_avgs[0].keys():
             plt.plot([self.grad_ratios_avgs[j][name] for j in range(len(self.grad_ratios_avgs))])
             legends.append(name)
-        plt.legend(legends)
+        plt.legend(legends, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
         plt.savefig(os.path.join(cfg.DIR ,'grad_ratios.png'), bbox_inches='tight')
         plt.clf()
         plt.close()
