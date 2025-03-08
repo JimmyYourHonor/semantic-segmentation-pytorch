@@ -264,7 +264,7 @@ class RelativePositionalEncoding(nn.Module):
         self.register_buffer("relative_position_index", relative_position_index)
     def forward(self, attn):
         relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-            self.base_h * self.base_w, self.base_h * self.base_w, -1)  # h*w,h_sr*w_sr,nH
+            self.base_h * self.base_w, self.base_h // self.sr_ratio * self.base_w // self.sr_ratio, -1)  # h*w,h_sr*w_sr,nH
         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, h*w, h_sr*w_sr
         attn = attn + relative_position_bias.unsqueeze(0)
         return attn
