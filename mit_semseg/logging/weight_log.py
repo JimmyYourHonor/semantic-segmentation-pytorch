@@ -41,6 +41,24 @@ class LogWeight(Log):
                     self.grads[meta_name] = []
                 self.params_before[meta_name].append(m.weight.detach().cpu())
                 self.grads[meta_name].append(m.weight.grad.detach().cpu())
+            elif isinstance(m, Image2DPositionalEncoding):
+                meta_name = ".".join(name.split(".")[:4])
+                if meta_name not in self.params_before:
+                    self.params_before[meta_name] = []
+                if meta_name not in self.grads:
+                    self.grads[meta_name] = []
+                self.params_before[meta_name].append(m.h_embedding.detach().cpu())
+                self.params_before[meta_name].append(m.w_embedding.detach().cpu())
+                self.grads[meta_name].append(m.h_embedding.grad.detach().cpu())
+                self.grads[meta_name].append(m.w_embedding.grad.detach().cpu())
+            elif isinstance(m, RelativePositionalEncoding):
+                meta_name = ".".join(name.split(".")[:4])
+                if meta_name not in self.params_before:
+                    self.params_before[meta_name] = []
+                if meta_name not in self.grads:
+                    self.grads[meta_name] = []
+                self.params_before[meta_name].append(m.relative_position_bias_table.detach().cpu())
+                self.grads[meta_name].append(m.relative_position_bias_table.grad.detach().cpu())
 
     def after_optim(self):
         self.params_after = {}
@@ -51,13 +69,13 @@ class LogWeight(Log):
                     self.params_after[meta_name] = []
                 self.params_after[meta_name].append(m.weight.detach().cpu())
             elif isinstance(m, Image2DPositionalEncoding):
-                meta_name = ".".join(name.split(".")[:3])
+                meta_name = ".".join(name.split(".")[:4])
                 if meta_name not in self.params_after:
                     self.params_after[meta_name] = []
                 self.params_after[meta_name].append(m.h_embedding.detach().cpu())
                 self.params_after[meta_name].append(m.w_embedding.detach().cpu())
             elif isinstance(m, RelativePositionalEncoding):
-                meta_name = ".".join(name.split(".")[:3])
+                meta_name = ".".join(name.split(".")[:4])
                 if meta_name not in self.params_after:
                     self.params_after[meta_name] = []
                 self.params_after[meta_name].append(m.relative_position_bias_table.detach().cpu())
