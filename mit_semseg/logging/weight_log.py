@@ -28,6 +28,14 @@ class LogWeight(Log):
                 meta_name = ".".join(name.split(".")[:3])
                 self.update_ratios_avg[meta_name] = AverageMeter()
                 self.grad_ratios_avg[meta_name] = AverageMeter()
+            elif isinstance(m, Image2DPositionalEncoding):
+                meta_name = ".".join(name.split(".")[:4])
+                self.update_ratios_avg[meta_name] = AverageMeter()
+                self.grad_ratios_avg[meta_name] = AverageMeter()
+            elif isinstance(m, RelativePositionalEncoding):
+                meta_name = ".".join(name.split(".")[:4])
+                self.update_ratios_avg[meta_name] = AverageMeter()
+                self.grad_ratios_avg[meta_name] = AverageMeter()
 
     def before_optim(self, **kwargs):
         self.params_before = {}
