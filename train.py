@@ -19,7 +19,6 @@ from mit_semseg.utils import AverageMeter, parse_devices, setup_logger, accuracy
 from mit_semseg.lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback, train_collate, async_copy_to
 from mit_semseg.lib.utils import as_numpy
 from mit_semseg.logging import *
-from mit_semseg.models.lib.pos_emb import Image2DPositionalEncoding
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -204,31 +203,17 @@ def checkpoint(nets, history, cfg, epoch, encoder_opt=None, decoder_opt=None, lo
 
 def group_weight(module):
     group_decay = []
-    group_no_decay = []
     for m in module.modules():
         if isinstance(m, nn.Linear):
             group_decay.append(m.weight)
-            if m.bias is not None:
-                group_no_decay.append(m.bias)
         elif isinstance(m, nn.modules.conv._ConvNd):
             group_decay.append(m.weight)
-            if m.bias is not None:
-                group_no_decay.append(m.bias)
-        elif isinstance(m, nn.modules.batchnorm._BatchNorm):
-            if m.weight is not None:
-                group_no_decay.append(m.weight)
-            if m.bias is not None:
-                group_no_decay.append(m.bias)
-        elif isinstance(m, nn.LayerNorm):
-            if m.weight is not None:
-                group_no_decay.append(m.weight)
-            if m.bias is not None:
-                group_no_decay.append(m.bias)
-        elif isinstance(m, Image2DPositionalEncoding):
-            if m.h_embedding is not None:
-                group_no_decay.append(m.h_embedding)
-            if m.w_embedding is not None:
-                group_no_decay.append(m.w_embedding)
+    group_no_decay = []
+    for param in module.parameters():
+        if param.requires_grad:
+            # Check if this parameter is already in one of our lists
+            if not any(id(param) == id(p) for p in group_decay):
+                group_no_decay.append(param)
 
 
     assert len(list(module.parameters())) == len(group_decay) + len(group_no_decay)
