@@ -118,22 +118,24 @@ class LogWeight(Log):
     def save_results(self, cfg):
         colors = sns.color_palette('hls', len(self.update_ratios_avgs[0]))
         plt.gca().set_prop_cycle('color', colors)
+        plt.figure(figsize=(10, 8))
         legends = []
         for name in self.update_ratios_avgs[0].keys():
             plt.plot([self.update_ratios_avgs[j][name] for j in range(len(self.update_ratios_avgs))])
             legends.append(name)
         plt.plot([0, len(self.update_ratios_avgs)], [-3, -3], 'k') # these ratios should be ~1e-3, indicate on plot
-        plt.legend(legends, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+        plt.legend(legends, bbox_to_anchor=(1, 1), loc='upper left', borderaxespad=0., fontsize='small')
         plt.savefig(os.path.join(cfg.DIR ,'update_ratios.png'), bbox_inches='tight')
         plt.clf()
 
         colors = sns.color_palette('hls', len(self.grad_ratios_avgs[0]))
         plt.gca().set_prop_cycle('color', colors)
+        plt.figure(figsize=(10, 8))
         legends = []
         for name in self.grad_ratios_avgs[0].keys():
             plt.plot([self.grad_ratios_avgs[j][name] for j in range(len(self.grad_ratios_avgs))])
             legends.append(name)
-        plt.legend(legends, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+        plt.legend(legends, bbox_to_anchor=(1, 1), loc='upper left', borderaxespad=0., fontsize='small')
         plt.savefig(os.path.join(cfg.DIR ,'grad_ratios.png'), bbox_inches='tight')
         plt.clf()
         plt.close()
