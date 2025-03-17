@@ -19,6 +19,8 @@ class LogWeight(Log):
         self.grads = {}
         self.update_ratios_avg = {}
         self.grad_ratios_avg = {}
+        self.previous_update = {}
+        self.update_smoothness = []
         self.update_ratios_avgs = []
         self.grad_ratios_avgs = []
 
@@ -87,7 +89,8 @@ class LogWeight(Log):
                 if meta_name not in self.params_after:
                     self.params_after[meta_name] = []
                 self.params_after[meta_name].append(m.relative_position_bias_table.detach().cpu())
-
+        if self.previous_update:
+            self.update_smoothness.append({})
         for name in self.params_before.keys():
             param_before = torch.cat([param.flatten() for param in self.params_before[name]])
             param_after = torch.cat([param.flatten() for param in self.params_after[name]])
@@ -97,6 +100,19 @@ class LogWeight(Log):
             grad_ratio = nn.functional.cosine_similarity(grad, update, dim=0).data.item()
             self.grad_ratios_avg[name].update(grad_ratio)
             self.update_ratios_avg[name].update(update_ratio)
+
+            # Calculate and record update smoothness
+            if name in self.previous_update:
+                prev_update = self.previous_update[name]
+                angle = torch.acos(torch.dot(update, prev_update)) / \
+                (torch.linalg.norm(update) * torch.linalg.norm(prev_update))
+                if len(self.update_smoothness) == 1:
+                    self.update_smoothness[0][name] = angle
+                else:
+                    acc_angle = self.update_smoothness[-2][name] + angle
+                    self.update_smoothness[-1][name] = acc_angle
+
+            self.previous_update[name] = update
 
     def on_train_epoch_end(self):
         self.grad_ratios_avgs.append({})
@@ -137,5 +153,16 @@ class LogWeight(Log):
             legends.append(name)
         plt.legend(legends, bbox_to_anchor=(1, 1), loc='upper left', borderaxespad=0., fontsize='small')
         plt.savefig(os.path.join(cfg.DIR ,'grad_ratios.png'), bbox_inches='tight')
+        plt.clf()
+
+        colors = sns.color_palette('hls', len(self.update_smoothness[0]))
+        plt.gca().set_prop_cycle('color', colors)
+        plt.figure(figsize=(10, 8))
+        legends = []
+        for name in self.update_smoothness[0].keys():
+            plt.plot([self.update_smoothness[j][name] for j in range(len(self.update_smoothness))])
+            legends.append(name)
+        plt.legend(legends, bbox_to_anchor=(1, 1), loc='upper left', borderaxespad=0., fontsize='small')
+        plt.savefig(os.path.join(cfg.DIR ,'update_smoothness.png'), bbox_inches='tight')
         plt.clf()
         plt.close()

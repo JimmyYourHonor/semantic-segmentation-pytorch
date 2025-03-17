@@ -191,7 +191,6 @@ class Attention(nn.Module):
             else:
                 raise Exception('relative positional encoding can' \
                                 'only be applied with sliding window attention')
-        attn = self.rel_pos_emb(attn)
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
         x = (attn @ v).transpose(1, 2)
