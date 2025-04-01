@@ -34,10 +34,10 @@ class LogWeight(Log):
                 meta_name = ".".join(name.split(".")[:4])
                 self.update_ratios_avg[meta_name] = AverageMeter()
                 self.grad_ratios_avg[meta_name] = AverageMeter()
-            elif isinstance(m, RelativePositionalEncoding):
-                meta_name = ".".join(name.split(".")[:4])
-                self.update_ratios_avg[meta_name] = AverageMeter()
-                self.grad_ratios_avg[meta_name] = AverageMeter()
+            # elif isinstance(m, RelativePositionalEncoding):
+            #     meta_name = ".".join(name.split(".")[:4])
+            #     self.update_ratios_avg[meta_name] = AverageMeter()
+            #     self.grad_ratios_avg[meta_name] = AverageMeter()
 
     def before_optim(self, **kwargs):
         self.params_before = {}
@@ -61,14 +61,14 @@ class LogWeight(Log):
                 self.params_before[meta_name].append(m.w_embedding.detach().cpu())
                 self.grads[meta_name].append(m.h_embedding.grad.detach().cpu())
                 self.grads[meta_name].append(m.w_embedding.grad.detach().cpu())
-            elif isinstance(m, RelativePositionalEncoding):
-                meta_name = ".".join(name.split(".")[:4])
-                if meta_name not in self.params_before:
-                    self.params_before[meta_name] = []
-                if meta_name not in self.grads:
-                    self.grads[meta_name] = []
-                self.params_before[meta_name].append(m.relative_position_bias_table.detach().cpu())
-                self.grads[meta_name].append(m.relative_position_bias_table.grad.detach().cpu())
+            # elif isinstance(m, RelativePositionalEncoding):
+            #     meta_name = ".".join(name.split(".")[:4])
+            #     if meta_name not in self.params_before:
+            #         self.params_before[meta_name] = []
+            #     if meta_name not in self.grads:
+            #         self.grads[meta_name] = []
+            #     self.params_before[meta_name].append(m.relative_position_bias_table.detach().cpu())
+            #     self.grads[meta_name].append(m.relative_position_bias_table.grad.detach().cpu())
 
     def after_optim(self):
         self.params_after = {}
@@ -84,11 +84,11 @@ class LogWeight(Log):
                     self.params_after[meta_name] = []
                 self.params_after[meta_name].append(m.h_embedding.detach().cpu())
                 self.params_after[meta_name].append(m.w_embedding.detach().cpu())
-            elif isinstance(m, RelativePositionalEncoding):
-                meta_name = ".".join(name.split(".")[:4])
-                if meta_name not in self.params_after:
-                    self.params_after[meta_name] = []
-                self.params_after[meta_name].append(m.relative_position_bias_table.detach().cpu())
+            # elif isinstance(m, RelativePositionalEncoding):
+            #     meta_name = ".".join(name.split(".")[:4])
+            #     if meta_name not in self.params_after:
+            #         self.params_after[meta_name] = []
+            #     self.params_after[meta_name].append(m.relative_position_bias_table.detach().cpu())
         if self.previous_update:
             self.update_smoothness.append({})
         for name in self.params_before.keys():
