@@ -21,8 +21,8 @@ MODEL:
   fc_dim: None
   in_channels: [32, 64, 160, 256]
   embedding_dim: 256
-  use_pos_emb: True
-  use_rel_pos_emb: False
+  use_pos_emb: False
+  use_rel_pos_emb: True
   sliding: True
   kernels: [32, 16, 8, 4]
 

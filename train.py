@@ -355,7 +355,7 @@ def main(cfg, verbose):
     if cfg.MODEL.checkpoint:
         ckpt_file = os.path.join(cfg.DIR, cfg.MODEL.checkpoint)
         if os.path.isfile(ckpt_file):
-            state_dict = torch.load(ckpt_file, map_location=lambda storage, loc: storage, weight_only=False)
+            state_dict = torch.load(ckpt_file, map_location=lambda storage, loc: storage, weights_only=False)
             segmentation_module.encoder.load_state_dict(state_dict['encoder'])
             segmentation_module.decoder.load_state_dict(state_dict['decoder'])
             optimizers[0].load_state_dict(state_dict['encoder_opt'])

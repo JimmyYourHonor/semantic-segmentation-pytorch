@@ -92,6 +92,8 @@ class LogActivationGrad(Log):
                     grad = torch.mean(grad, dim=-1).detach().cpu().numpy()
                 elif len(grad.shape) == 4:
                     grad = torch.mean(grad, dim=1).detach().cpu().numpy()
+                else:
+                    continue
                 if i == len(self.vis_set[epoch][name]):
                     self.vis_set[epoch][name].append(grad[idx])
                 else:
