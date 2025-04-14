@@ -41,6 +41,7 @@ def drawPage(vis_set, pdf, epoch, page, i):
                     return
     pdf.savefig(fig)
     plt.clf()
+    plt.close()
 
 class LogActivationGrad(Log):
     def __init__(self, model, threshold=3e-6):
