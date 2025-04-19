@@ -178,7 +178,11 @@ def main(cfg, gpu):
     if cfg.MODEL.checkpoint:
         ckpt_file = os.path.join(cfg.DIR, cfg.MODEL.checkpoint)
         if os.path.isfile(ckpt_file):
-            state_dict = torch.load(ckpt_file, map_location=lambda storage, loc: storage)
+            state_dict = torch.load(
+                ckpt_file,
+                map_location=lambda storage,
+                loc: storage,
+                weights_only=False)
             segmentation_module.encoder.load_state_dict(state_dict['encoder'])
             segmentation_module.decoder.load_state_dict(state_dict['decoder'])
 
